@@ -306,10 +306,11 @@ __device__ void paged_attention_kernel(
         qk_max = mask ? qk_max : fmaxf(qk_max, qk);
 
         if (attn_scores != nullptr && !mask) {
-          attn_scores[seq_idx * num_heads * BLOCK_SIZE * max_num_blocks_per_seq
-                      + head_idx * BLOCK_SIZE * max_num_blocks_per_seq
-                      + token_idx - start_token_idx]
-              = logits[token_idx - start_token_idx];
+          attn_scores[seq_idx * num_heads * BLOCK_SIZE *
+                          max_num_blocks_per_seq +
+                      head_idx * BLOCK_SIZE * max_num_blocks_per_seq +
+                      token_idx - start_token_idx] =
+              logits[token_idx - start_token_idx];
         }
       }
     }
@@ -731,7 +732,9 @@ void paged_attention_v1_launcher(
   CACHE_T* value_cache_ptr = reinterpret_cast<CACHE_T*>(value_cache.data_ptr());
   int* block_tables_ptr = block_tables.data_ptr<int>();
   int* seq_lens_ptr = seq_lens.data_ptr<int>();
-  float* attn_scores_ptr = attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr()) : nullptr;
+  float* attn_scores_ptr =
+      attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
+                              : nullptr;
 
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
   int padded_max_seq_len =
@@ -895,7 +898,9 @@ void paged_attention_v2_launcher(
   CACHE_T* value_cache_ptr = reinterpret_cast<CACHE_T*>(value_cache.data_ptr());
   int* block_tables_ptr = block_tables.data_ptr<int>();
   int* seq_lens_ptr = seq_lens.data_ptr<int>();
-  float* attn_scores_ptr = attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr()) : nullptr;
+  float* attn_scores_ptr =
+      attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
+                              : nullptr;
 
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
   int max_num_partitions = DIVIDE_ROUND_UP(max_seq_len, PARTITION_SIZE);
