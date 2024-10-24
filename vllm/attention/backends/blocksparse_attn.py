@@ -349,6 +349,7 @@ class BlocksparseFlashAttentionImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention and PagedAttention.
 
@@ -366,6 +367,10 @@ class BlocksparseFlashAttentionImpl(AttentionImpl):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "BlocksparseFlashAttentionImpl")
+
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for BlocksparseFlashAttentionImpl")
 
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.

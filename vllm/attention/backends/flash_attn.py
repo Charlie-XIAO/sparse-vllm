@@ -657,6 +657,7 @@ class FlashAttentionImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention.
 
@@ -674,6 +675,10 @@ class FlashAttentionImpl(AttentionImpl):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "FlashAttentionImpl")
+
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for FlashAttentionImpl")
 
         # NOTE(woosuk): FlashAttention does not support FP8 KV cache.
         assert k_scale == 1.0 and v_scale == 1.0, (

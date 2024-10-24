@@ -751,6 +751,7 @@ class FlashInferImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         assert k_scale == 1.0 and v_scale == 1.0, (
             "key/v_scale is not supported in FlashInfer.")
@@ -759,6 +760,9 @@ class FlashInferImpl(AttentionImpl):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "FlashInferImpl")
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for FlashInferImpl")
         num_tokens, hidden_size = query.shape
         query = query.view(-1, self.num_heads, self.head_size)
         key = key.view(-1, self.num_kv_heads, self.head_size)

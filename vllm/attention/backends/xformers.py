@@ -450,6 +450,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with xFormers and PagedAttention.
 
@@ -646,6 +647,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
                 self.alibi_slopes,
                 k_scale,
                 v_scale,
+                attn_scores=attn_scores,
             )
 
         # Reshape the output tensor.

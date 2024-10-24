@@ -99,10 +99,16 @@ class OPTAttention(nn.Module):
         hidden_states: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
+        attn_scores: Optional[torch.Tensor],
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.chunk(chunks=3, dim=-1)
-        attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        attn_output = self.attn(q,
+                                k,
+                                v,
+                                kv_cache,
+                                attn_metadata,
+                                attn_scores=attn_scores)
         output, _ = self.out_proj(attn_output)
         return output
 
@@ -153,6 +159,7 @@ class OPTDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
+        attn_scores: Optional[torch.Tensor],
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -161,7 +168,8 @@ class OPTDecoderLayer(nn.Module):
             hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states = self.self_attn(hidden_states=hidden_states,
                                        kv_cache=kv_cache,
-                                       attn_metadata=attn_metadata)
+                                       attn_metadata=attn_metadata,
+                                       attn_scores=attn_scores)
         hidden_states = residual + hidden_states
         # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:
@@ -195,6 +203,7 @@ class OPTDecoder(nn.Module):
         self.padding_idx = config.pad_token_id
         self.max_target_positions = config.max_position_embeddings
         self.vocab_size = config.vocab_size
+        self.block_size = cache_config.block_size
 
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
@@ -255,9 +264,26 @@ class OPTDecoder(nn.Module):
             inputs_embeds, _ = self.project_in(inputs_embeds)
         hidden_states = inputs_embeds + pos_embeds
 
+        # Get the maximum number of blocks needs among the sequences we process
+        if attn_metadata.decode_metadata:
+            max_num_blocks = max(
+                len(item)
+                for item in attn_metadata.decode_metadata.block_tables)
+        if attn_metadata.prefill_metadata:
+            max_num_blocks = max(
+                len(item)
+                for item in attn_metadata.prefill_metadata.block_tables)
+
         for i in range(len(self.layers)):
             layer = self.layers[i]
-            hidden_states = layer(hidden_states, kv_caches[i], attn_metadata)
+            layer_attn_scores = torch.zeros(hidden_states.size(0),
+                                            self.config.num_attention_heads,
+                                            self.block_size * max_num_blocks,
+                                            device="cuda",
+                                            dtype=torch.float32)
+            hidden_states = layer(hidden_states, kv_caches[i], attn_metadata,
+                                  layer_attn_scores)
+            # XXX(Charlie-XIAO): `layer_attn_scores` is written
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)

@@ -156,6 +156,7 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with torch SDPA and PagedAttention.
 
@@ -174,6 +175,9 @@ class TorchSDPABackendImpl(AttentionImpl[TorchSDPAMetadata]):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "TorchSDPABackendImpl")
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for TorchSDPABackendImpl")
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.
         query = query.view(-1, self.num_heads, self.head_size)
