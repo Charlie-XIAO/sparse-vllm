@@ -34,6 +34,10 @@ envs = load_module_from_path('envs', os.path.join(ROOT_DIR, 'vllm', 'envs.py'))
 
 VLLM_TARGET_DEVICE = envs.VLLM_TARGET_DEVICE
 
+# Disable vllm-flash-attn build if it is not used to reduce compilation time
+DISABLE_FLASH_ATTN_BUILD = (envs.VLLM_ATTENTION_BACKEND is not None
+                            and envs.VLLM_ATTENTION_BACKEND != "FLASH_ATTN")
+
 if not sys.platform.startswith("linux"):
     logger.warning(
         "vLLM only supports Linux platform (including WSL). "
@@ -133,6 +137,9 @@ class cmake_build_ext(build_ext):
         verbose = envs.VERBOSE
         if verbose:
             cmake_args += ['-DCMAKE_VERBOSE_MAKEFILE=ON']
+
+        if DISABLE_FLASH_ATTN_BUILD:
+            cmake_args += ['-DENABLE_FLASH_ATTN_BUILD=OFF']
 
         if is_sccache_available():
             cmake_args += [
@@ -463,7 +470,7 @@ if _is_cuda() or _is_hip():
 if _is_hip():
     ext_modules.append(CMakeExtension(name="vllm._rocm_C"))
 
-if _is_cuda():
+if _is_cuda() and not DISABLE_FLASH_ATTN_BUILD:
     ext_modules.append(
         CMakeExtension(name="vllm.vllm_flash_attn.vllm_flash_attn_c"))
 

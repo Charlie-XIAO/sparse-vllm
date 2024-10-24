@@ -13,6 +13,8 @@ cmake_minimum_required(VERSION 3.26)
 # cmake --install . --component _C
 project(vllm_extensions LANGUAGES CXX)
 
+option(ENABLE_FLASH_ATTN_BUILD "Enable building vllm-flash-attn" ON)
+
 # CUDA by default, can be overridden by using -DVLLM_TARGET_DEVICE=... (used by setup.py)
 set(VLLM_TARGET_DEVICE "cuda" CACHE STRING "Target device backend for vLLM")
 
@@ -354,8 +356,9 @@ if(VLLM_GPU_LANG STREQUAL "HIP")
     WITH_SOABI)
 endif()
 
-# vllm-flash-attn currently only supported on CUDA
-if (NOT VLLM_TARGET_DEVICE STREQUAL "cuda")
+# vllm-flash-attn currently only supported on CUDA; also we do not build
+# vllm-flash-attention if it is explicitly disabled to reduce compilation time
+if (NOT VLLM_TARGET_DEVICE STREQUAL "cuda" OR NOT ENABLE_FLASH_ATTN_BUILD)
   return()
 endif ()
 
