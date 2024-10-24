@@ -305,6 +305,7 @@ __device__ void paged_attention_kernel(
         // Update the max value.
         qk_max = mask ? qk_max : fmaxf(qk_max, qk);
 
+        // Shape (num_seqs, num_heads, BLOCK_SIZE * max_num_blocks_per_seq)
         if (attn_scores != nullptr && !mask) {
           attn_scores[seq_idx * num_heads * BLOCK_SIZE *
                           max_num_blocks_per_seq +

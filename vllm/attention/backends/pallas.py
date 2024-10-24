@@ -148,6 +148,7 @@ class PallasAttentionBackendImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with Pallas attention.
 
@@ -167,6 +168,9 @@ class PallasAttentionBackendImpl(AttentionImpl):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "PallasAttentionBackendImpl")
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for PallasAttentionBackendImpl")
         batch_size, seq_len, hidden_size = query.shape
         query = query.view(batch_size, seq_len, self.num_heads, self.head_size)
         key = key.view(batch_size, seq_len, self.num_kv_heads, self.head_size)

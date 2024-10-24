@@ -388,6 +388,7 @@ class ROCmFlashAttentionImpl(AttentionImpl):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with FlashAttention and PagedAttention.
 
@@ -405,6 +406,10 @@ class ROCmFlashAttentionImpl(AttentionImpl):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "ROCmFlashAttentionImpl")
+
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for ROCmFlashAttentionImpl")
 
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.

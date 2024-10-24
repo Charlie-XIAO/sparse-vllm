@@ -172,6 +172,7 @@ class IpexAttnBackendImpl(AttentionImpl[IpexAttnMetadata]):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with IPEX varlen_attention and PagedAttention.
 
@@ -190,6 +191,9 @@ class IpexAttnBackendImpl(AttentionImpl[IpexAttnMetadata]):
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
                                       "IpexAttnBackendImpl")
+        if attn_scores is not None:
+            raise NotImplementedError("Attention scores cannot be obtained "
+                                      "for IpexAttnBackendImpl")
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.
         query = query.view(-1, self.num_heads, self.head_size)
