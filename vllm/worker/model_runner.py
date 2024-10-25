@@ -206,6 +206,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             seq_ids: List[int],
             is_prompt: bool,
             block_tables: Optional[Dict[int, List[int]]],
+            block_masks: Optional[Dict[int, List[np.ndarray]]],
             computed_block_nums: List[int],
             n_seqs: int = 0,
 
@@ -255,6 +256,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             self.request_id = request_id
             self.is_prompt = is_prompt
             self.block_tables = block_tables
+            self.block_masks = block_masks
             self.computed_block_nums = computed_block_nums
             self.n_seqs = n_seqs
             self.encoder_seq_len = encoder_seq_len
@@ -385,6 +387,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             seq_ids=[0] * num_seqs,
             is_prompt=True,
             block_tables=None,
+            block_masks=None,
             computed_block_nums=[])
 
     def init_cached_inter_data(self, *args, **kwargs):
@@ -714,6 +717,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             seq_ids=seq_ids,
             is_prompt=is_prompt,
             block_tables=seq_group_metadata.block_tables,
+            block_masks=seq_group_metadata.block_masks,
             computed_block_nums=seq_group_metadata.computed_block_nums,
             reinit=True,
             reinit_use_defaults=True,
@@ -1215,6 +1219,7 @@ class GPUModelRunnerBase(ModelRunnerBase[TModelInputForGPU]):
                 seq_data={group_id: seq_data},
                 sampling_params=sampling_params,
                 block_tables=None,
+                block_masks=None,
                 lora_request=dummy_lora_requests_per_seq[group_id]
                 if dummy_lora_requests_per_seq else None,
                 multi_modal_data=dummy_multi_modal_data,

@@ -1,6 +1,8 @@
 """Token blocks."""
 from typing import TYPE_CHECKING, Iterator, List, Optional
 
+import numpy as np
+
 from vllm.utils import Device
 
 DEFAULT_LAST_ACCESSED_TIME: float = -1
@@ -44,6 +46,7 @@ class BlockTable:
     def __init__(self, blocks: Optional[List[PhysicalTokenBlock]] = None):
         self._blocks: List[PhysicalTokenBlock] = []
         self._block_ids: List[int] = []
+        self._block_masks: List[np.ndarray] = []
 
         if blocks is not None:
             for block in blocks:
@@ -52,6 +55,7 @@ class BlockTable:
     def append(self, block: PhysicalTokenBlock):
         self._blocks.append(block)
         self._block_ids.append(block.block_number)
+        self._block_masks.append(self._get_fresh_mask(block))
 
     def __len__(self) -> int:
         return len(self._blocks)
@@ -69,14 +73,20 @@ class BlockTable:
             blocks = value
             self._blocks[key] = blocks
             self._block_ids[key] = [b.block_number for b in blocks]
+            self._block_ids[key] = [self._get_fresh_mask(b) for b in blocks]
         else:
             block = value
             self._blocks[key] = block
             self._block_ids[key] = block.block_number
+            self._block_masks[key] = self._get_fresh_mask(block)
+
+    def _get_fresh_mask(self, block: PhysicalTokenBlock):
+        return np.ones(block.block_size, dtype=np.bool_)
 
     def reset(self):
         self._blocks = []
         self._block_ids = []
+        self._block_masks = []
 
     def copy(self) -> "BlockTable":
         return BlockTable(self._blocks)
@@ -86,3 +96,6 @@ class BlockTable:
 
     def ids(self) -> List[int]:
         return self._block_ids
+
+    def masks(self) -> List[np.ndarray]:
+        return self._block_masks

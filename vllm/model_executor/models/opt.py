@@ -283,7 +283,15 @@ class OPTDecoder(nn.Module):
                                             dtype=torch.float32)
             hidden_states = layer(hidden_states, kv_caches[i], attn_metadata,
                                   layer_attn_scores)
+
             # XXX(Charlie-XIAO): `layer_attn_scores` is written
+            # if layer_attn_scores.numel() > 0:
+            #     print(f"Layer {i}")
+            #     layer_attn_mean_scores = layer_attn_scores.mean(dim=1)
+            #     print(layer_attn_mean_scores)
+            #     for j in range(layer_attn_mean_scores.size(0)):
+            #         _, indices = torch.topk(layer_attn_mean_scores[j, :], k=5)
+            #         print(indices)
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)

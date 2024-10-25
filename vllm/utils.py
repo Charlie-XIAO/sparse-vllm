@@ -138,6 +138,7 @@ TORCH_DTYPE_TO_NUMPY_DTYPE = {
     torch.uint8: np.uint8,
     torch.int32: np.int32,
     torch.int64: np.int64,
+    torch.bool: np.bool_,
 }
 
 P = ParamSpec('P')

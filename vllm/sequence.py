@@ -11,6 +11,7 @@ from typing import Sequence as GenericSequence
 from typing import Set, Tuple, Union, cast
 
 import msgspec
+import numpy as np
 import torch
 
 from vllm.inputs import EncoderDecoderLLMInputs, LLMInputs
@@ -940,6 +941,9 @@ class SequenceGroupMetadata(
         sampling_params: The sampling parameters used to generate the outputs.
         block_tables: The block tables. (Seq id -> list of physical block
             numbers)
+        block_masks: The block masks. (Seq id -> list of masks for physical
+            blocks; in particular, each physical block correspond to a boolean
+            mask that is 1 for active slots and 0 for inactive slots)
         do_sample: True if sampling is required. Sampling is not required when
             e.g., prefill is chunked, and the current iteration only computes
             query tokens for prefill, we don't need sampling.
@@ -967,6 +971,7 @@ class SequenceGroupMetadata(
     seq_data: Dict[int, SequenceData]
     sampling_params: Optional[SamplingParams]
     block_tables: Dict[int, List[int]]
+    block_masks: Dict[int, List[np.ndarray]]
     do_sample: bool = True
     pooling_params: Optional[PoolingParams] = None
     lora_request: Optional[LoRARequest] = None

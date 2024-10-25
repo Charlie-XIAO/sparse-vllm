@@ -79,6 +79,7 @@ def paged_attention_v1(
     num_kv_heads: int,
     scale: float,
     block_tables: torch.Tensor,
+    block_masks: torch.Tensor,
     seq_lens: torch.Tensor,
     block_size: int,
     max_seq_len: int,
@@ -93,6 +94,7 @@ def paged_attention_v1(
     blocksparse_head_sliding_step: int = 0,
     attn_scores: Optional[torch.Tensor] = None,
 ) -> None:
+    # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v1(
         out, query, key_cache, value_cache, num_kv_heads, scale, block_tables,
         seq_lens, block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
@@ -112,6 +114,7 @@ def paged_attention_v2(
     num_kv_heads: int,
     scale: float,
     block_tables: torch.Tensor,
+    block_masks: torch.Tensor,
     seq_lens: torch.Tensor,
     block_size: int,
     max_seq_len: int,
@@ -126,6 +129,7 @@ def paged_attention_v2(
     blocksparse_head_sliding_step: int = 0,
     attn_scores: Optional[torch.Tensor] = None,
 ) -> None:
+    # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v2(
         out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
         num_kv_heads, scale, block_tables, seq_lens, block_size, max_seq_len,

@@ -128,6 +128,7 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
         self.prefill_seq_lens: List[int] = []
         self.context_lens: List[int] = []
         self.block_tables: List[List[int]] = []
+        self.block_masks: List[np.ndarray] = []
         self.curr_seq_lens: List[int] = []
         self.num_prefills = 0
         self.num_prefill_tokens = 0
@@ -146,6 +147,7 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
             chunked_prefill_enabled: bool):
         is_prompt = inter_data.is_prompt
         block_tables = inter_data.block_tables
+        block_masks = inter_data.block_masks
         computed_block_nums = inter_data.computed_block_nums
 
         for (seq_id, token_len, seq_len, curr_seq_len, query_len, context_len,
@@ -177,6 +179,18 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
                   and block_tables is not None):
                 block_table = block_tables[seq_id][-curr_sliding_window_block:]
             self.block_tables.append(block_table)
+
+            # Compute block mask.
+            # Note that the list of boolean masks on each block is concatenated
+            # into a single boolean mask so when we later construct the tensor,
+            # the padding operation is easier; we can still distinguish because
+            # we know the block size
+            block_mask = np.array([])
+            if ((chunked_prefill_enabled or not is_prompt)
+                    and block_masks is not None):
+                block_mask = np.hstack(
+                    block_masks[seq_id][-curr_sliding_window_block:])
+            self.block_masks.append(block_mask)
 
             # Compute slot mapping.
             is_profile_run = is_block_tables_empty(block_tables)
@@ -230,6 +244,12 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
                 dtype=torch.int,
                 device=device,
             )
+
+        block_masks = make_tensor_with_pad(self.block_masks,
+                                           pad=False,
+                                           dtype=torch.bool,
+                                           device=device)
+
         assert max_query_len > 0, "query_lens: {}".format(query_lens)
 
         assert device is not None
@@ -270,6 +290,7 @@ class CommonMetadataBuilder(AttentionMetadataBuilder[TAttentionMetadata]):
             seq_start_loc=seq_start_loc,
             context_lens_tensor=context_lens_tensor,
             block_tables=block_tables,
+            block_masks=block_masks,
             use_cuda_graph=use_captured_graph,
         )
 

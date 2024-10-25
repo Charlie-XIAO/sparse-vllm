@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import (Callable, Deque, Dict, Iterable, List, Optional, Set,
                     Tuple, Union)
 
+import numpy as np
+
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
@@ -273,7 +275,8 @@ def seq_group_metadata_builder():
                                  is_prompt=False,
                                  seq_data={},
                                  sampling_params=None,
-                                 block_tables={})
+                                 block_tables={},
+                                 block_masks={})
 
 
 def scheduler_running_outputs_builder():
@@ -1211,6 +1214,8 @@ class Scheduler:
             seq_data: Dict[int, SequenceData] = {}
             # seq_id -> physical block numbers
             block_tables: Dict[int, List[int]] = {}
+            # seq_id -> masks for the blocks
+            block_masks: Dict[int, List[np.ndarray]] = {}
 
             if seq_group.is_encoder_decoder():
                 # Encoder associated with SequenceGroup
@@ -1229,6 +1234,7 @@ class Scheduler:
                 seq_id = seq.seq_id
                 seq_data[seq_id] = seq.data
                 block_tables[seq_id] = self.block_manager.get_block_table(seq)
+                block_masks[seq_id] = self.block_manager.get_block_mask(seq)
                 self.block_manager.access_all_blocks_in_seq(seq, now)
 
             if self.cache_config.enable_prefix_caching:
@@ -1265,6 +1271,7 @@ class Scheduler:
                     seq_data=seq_data,
                     sampling_params=seq_group.sampling_params,
                     block_tables=block_tables,
+                    block_masks=block_masks,
                     do_sample=do_sample,
                     pooling_params=seq_group.pooling_params,
                     token_chunk_size=token_chunk_size,

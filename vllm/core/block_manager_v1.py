@@ -7,6 +7,8 @@ from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Set, Tuple
 
+import numpy as np
+
 from vllm.block import BlockTable, PhysicalTokenBlock
 from vllm.core.block.common import CacheMetricData
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
@@ -658,6 +660,9 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
     def get_block_table(self, seq: Sequence) -> List[int]:
         return self.block_tables[seq.seq_id].ids()
+
+    def get_block_mask(self, seq: Sequence) -> List[np.ndarray]:
+        return self.block_tables[seq.seq_id].masks()
 
     def get_cross_block_table(self, seq_group: SequenceGroup) -> List[int]:
         block_table = self.cross_block_tables[seq_group.request_id]
