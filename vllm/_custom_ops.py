@@ -94,11 +94,10 @@ def paged_attention_v1(
     blocksparse_head_sliding_step: int = 0,
     attn_scores: Optional[torch.Tensor] = None,
 ) -> None:
-    # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v1(
         out, query, key_cache, value_cache, num_kv_heads, scale, block_tables,
-        seq_lens, block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
-        k_scale, v_scale, tp_rank, blocksparse_local_blocks,
+        block_masks, seq_lens, block_size, max_seq_len, alibi_slopes,
+        kv_cache_dtype, k_scale, v_scale, tp_rank, blocksparse_local_blocks,
         blocksparse_vert_stride, blocksparse_block_size,
         blocksparse_head_sliding_step, attn_scores)
 
@@ -132,8 +131,8 @@ def paged_attention_v2(
     # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v2(
         out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
-        num_kv_heads, scale, block_tables, seq_lens, block_size, max_seq_len,
-        alibi_slopes, kv_cache_dtype, k_scale, v_scale, tp_rank,
+        num_kv_heads, scale, block_tables, block_masks, seq_lens, block_size,
+        max_seq_len, alibi_slopes, kv_cache_dtype, k_scale, v_scale, tp_rank,
         blocksparse_local_blocks, blocksparse_vert_stride,
         blocksparse_block_size, blocksparse_head_sliding_step, attn_scores)
 
