@@ -299,16 +299,21 @@ __device__ void paged_attention_kernel(
       // Add the ALiBi bias if slopes are given.
       qk += (alibi_slope != 0) ? alibi_slope * (token_idx - seq_len + 1) : 0;
 
-      if (thread_group_offset == 0) {
-        // The block mask marks a slot as true if it is active or false
-        // otherwise, for an inactive slot we assign -FLT_MAX to avoid
-        // constribution to the sumexp softmax normalizer; essentially this is
-        // also setting the attention score to -inf
-        const bool is_active =
-            block_masks[seq_idx * BLOCK_SIZE * max_num_blocks_per_seq +
-                        token_idx - start_token_idx];
-        qk = is_active ? qk : -FLT_MAX;
+      // The block mask marks a slot in the block as true if it is active and
+      // false otherwise. Inactive blocks should not contribute to the attention
+      // weights, in which case we should assign -FLT_MAX so that it becomes 0
+      // after going through the sumexp softmax normalizer
+      // TODO(Charlie-XIAO): Is it possible to skip the QK computation if we are
+      // assigning it to -FLT_MAX? Simply putting this into an if branch causes
+      // operations on the obtained attention scores (on Python side) to hang
+      // infinitely, probably because of thread divergence given that the QK dot
+      // operation involves a reduction across multiple threads
+      const bool is_active =
+          block_masks[seq_idx * BLOCK_SIZE * max_num_blocks_per_seq +
+                      token_idx - start_token_idx];
+      qk = is_active ? qk : -FLT_MAX;
 
+      if (thread_group_offset == 0) {
         // Store the partial reductions to shared memory.
         // NOTE(woosuk): It is required to zero out the masked logits.
         const bool mask = token_idx >= seq_len;
