@@ -14,6 +14,7 @@ cmake_minimum_required(VERSION 3.26)
 project(vllm_extensions LANGUAGES CXX)
 
 option(ENABLE_FLASH_ATTN_BUILD "Enable building vllm-flash-attn" ON)
+option(ENABLE_MOE_BUILD "Enable building MOE" ON)
 
 # CUDA by default, can be overridden by using -DVLLM_TARGET_DEVICE=... (used by setup.py)
 set(VLLM_TARGET_DEVICE "cuda" CACHE STRING "Target device backend for vLLM")
@@ -312,30 +313,32 @@ target_compile_definitions(_C PRIVATE CUTLASS_ENABLE_DIRECT_CUDA_DRIVER_CALL=1)
 # _moe_C extension
 #
 
-set(VLLM_MOE_EXT_SRC
-  "csrc/moe/torch_bindings.cpp"
-  "csrc/moe/topk_softmax_kernels.cu")
+if (ENABLE_MOE_BUILD)
+  set(VLLM_MOE_EXT_SRC
+    "csrc/moe/torch_bindings.cpp"
+    "csrc/moe/topk_softmax_kernels.cu")
 
-if(VLLM_GPU_LANG STREQUAL "CUDA")
-  list(APPEND VLLM_MOE_EXT_SRC
-      "csrc/moe/marlin_kernels/marlin_moe_kernel.h"
-      "csrc/moe/marlin_kernels/marlin_moe_kernel_ku4b8.h"
-      "csrc/moe/marlin_kernels/marlin_moe_kernel_ku4b8.cu"
-      "csrc/moe/marlin_kernels/marlin_moe_kernel_ku8b128.h"
-      "csrc/moe/marlin_kernels/marlin_moe_kernel_ku8b128.cu"
-      "csrc/moe/marlin_moe_ops.cu")
+  if(VLLM_GPU_LANG STREQUAL "CUDA")
+    list(APPEND VLLM_MOE_EXT_SRC
+        "csrc/moe/marlin_kernels/marlin_moe_kernel.h"
+        "csrc/moe/marlin_kernels/marlin_moe_kernel_ku4b8.h"
+        "csrc/moe/marlin_kernels/marlin_moe_kernel_ku4b8.cu"
+        "csrc/moe/marlin_kernels/marlin_moe_kernel_ku8b128.h"
+        "csrc/moe/marlin_kernels/marlin_moe_kernel_ku8b128.cu"
+        "csrc/moe/marlin_moe_ops.cu")
+  endif()
+
+  message(STATUS "Enabling moe extension.")
+  define_gpu_extension_target(
+    _moe_C
+    DESTINATION vllm
+    LANGUAGE ${VLLM_GPU_LANG}
+    SOURCES ${VLLM_MOE_EXT_SRC}
+    COMPILE_FLAGS ${VLLM_GPU_FLAGS}
+    ARCHITECTURES ${VLLM_GPU_ARCHES}
+    USE_SABI 3
+    WITH_SOABI)
 endif()
-
-message(STATUS "Enabling moe extension.")
-define_gpu_extension_target(
-  _moe_C
-  DESTINATION vllm
-  LANGUAGE ${VLLM_GPU_LANG}
-  SOURCES ${VLLM_MOE_EXT_SRC}
-  COMPILE_FLAGS ${VLLM_GPU_FLAGS}
-  ARCHITECTURES ${VLLM_GPU_ARCHES}
-  USE_SABI 3
-  WITH_SOABI)
 
 if(VLLM_GPU_LANG STREQUAL "HIP")
   #
