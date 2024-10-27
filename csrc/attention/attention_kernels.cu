@@ -89,8 +89,10 @@ template <typename scalar_t, typename cache_t, int HEAD_SIZE, int BLOCK_SIZE,
           int PARTITION_SIZE = 0>  // Zero means no partitioning.
 __device__ void paged_attention_kernel(
     float* __restrict__ exp_sums,  // [num_seqs, num_heads, max_num_partitions]
-    float* __restrict__ max_logits,  // [num_seqs, num_heads,
-                                     // max_num_partitions]
+    float* __restrict__ max_logits,   // [num_seqs, num_heads,
+                                      // max_num_partitions]
+    float* __restrict__ attn_scores,  // [num_seqs, num_heads, BLOCK_SIZE *
+                                      // max_num_blocks_per_seq]
     scalar_t* __restrict__ out,  // [num_seqs, num_heads, max_num_partitions,
                                  // head_size]
     const scalar_t* __restrict__ q,       // [num_seqs, num_heads, head_size]
@@ -109,8 +111,7 @@ __device__ void paged_attention_kernel(
     const int q_stride, const int kv_block_stride, const int kv_head_stride,
     const float k_scale, const float v_scale, const int tp_rank,
     const int blocksparse_local_blocks, const int blocksparse_vert_stride,
-    const int blocksparse_block_size, const int blocksparse_head_sliding_step,
-    float* __restrict__ attn_scores) {
+    const int blocksparse_block_size, const int blocksparse_head_sliding_step) {
   const int seq_idx = blockIdx.y;
   const int partition_idx = blockIdx.z;
   const int max_num_partitions = gridDim.z;
@@ -527,6 +528,8 @@ template <typename scalar_t, typename cache_t, int HEAD_SIZE, int BLOCK_SIZE,
           bool IS_BLOCK_SPARSE>
 __global__ void paged_attention_v1_kernel(
     scalar_t* __restrict__ out,           // [num_seqs, num_heads, head_size]
+    float* __restrict__ attn_scores,      // [num_seqs, num_heads, BLOCK_SIZE *
+                                          // max_num_blocks_per_seq]
     const scalar_t* __restrict__ q,       // [num_seqs, num_heads, head_size]
     const cache_t* __restrict__ k_cache,  // [num_blocks, num_kv_heads,
                                           // head_size/x, block_size, x]
@@ -543,16 +546,15 @@ __global__ void paged_attention_v1_kernel(
     const int q_stride, const int kv_block_stride, const int kv_head_stride,
     const float k_scale, const float v_scale, const int tp_rank,
     const int blocksparse_local_blocks, const int blocksparse_vert_stride,
-    const int blocksparse_block_size, const int blocksparse_head_sliding_step,
-    float* __restrict__ attn_scores) {
+    const int blocksparse_block_size, const int blocksparse_head_sliding_step) {
   paged_attention_kernel<scalar_t, cache_t, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS,
                          KV_DTYPE, IS_BLOCK_SPARSE>(
-      /* exp_sums */ nullptr, /* max_logits */ nullptr, out, q, k_cache,
-      v_cache, num_kv_heads, scale, block_tables, block_masks, seq_lens,
-      max_num_blocks_per_seq, alibi_slopes, q_stride, kv_block_stride,
+      /* exp_sums */ nullptr, /* max_logits */ nullptr, attn_scores, out, q,
+      k_cache, v_cache, num_kv_heads, scale, block_tables, block_masks,
+      seq_lens, max_num_blocks_per_seq, alibi_slopes, q_stride, kv_block_stride,
       kv_head_stride, k_scale, v_scale, tp_rank, blocksparse_local_blocks,
       blocksparse_vert_stride, blocksparse_block_size,
-      blocksparse_head_sliding_step, attn_scores);
+      blocksparse_head_sliding_step);
 }
 
 // Grid: (num_heads, num_seqs, max_num_partitions).
@@ -564,6 +566,8 @@ __global__ void paged_attention_v2_kernel(
     float* __restrict__ exp_sums,  // [num_seqs, num_heads, max_num_partitions]
     float* __restrict__ max_logits,       // [num_seqs, num_heads,
                                           // max_num_partitions]
+    float* __restrict__ attn_scores,      // [num_seqs, num_heads, BLOCK_SIZE *
+                                          // max_num_blocks_per_seq]
     scalar_t* __restrict__ tmp_out,       // [num_seqs, num_heads,
                                           // max_num_partitions, head_size]
     const scalar_t* __restrict__ q,       // [num_seqs, num_heads, head_size]
@@ -582,15 +586,15 @@ __global__ void paged_attention_v2_kernel(
     const int q_stride, const int kv_block_stride, const int kv_head_stride,
     const float k_scale, const float v_scale, const int tp_rank,
     const int blocksparse_local_blocks, const int blocksparse_vert_stride,
-    const int blocksparse_block_size, const int blocksparse_head_sliding_step,
-    float* __restrict__ attn_scores) {
+    const int blocksparse_block_size, const int blocksparse_head_sliding_step) {
   paged_attention_kernel<scalar_t, cache_t, HEAD_SIZE, BLOCK_SIZE, NUM_THREADS,
                          KV_DTYPE, IS_BLOCK_SPARSE, PARTITION_SIZE>(
-      exp_sums, max_logits, tmp_out, q, k_cache, v_cache, num_kv_heads, scale,
-      block_tables, block_masks, seq_lens, max_num_blocks_per_seq, alibi_slopes,
-      q_stride, kv_block_stride, kv_head_stride, k_scale, v_scale, tp_rank,
-      blocksparse_local_blocks, blocksparse_vert_stride, blocksparse_block_size,
-      blocksparse_head_sliding_step, attn_scores);
+      exp_sums, max_logits, attn_scores, tmp_out, q, k_cache, v_cache,
+      num_kv_heads, scale, block_tables, block_masks, seq_lens,
+      max_num_blocks_per_seq, alibi_slopes, q_stride, kv_block_stride,
+      kv_head_stride, k_scale, v_scale, tp_rank, blocksparse_local_blocks,
+      blocksparse_vert_stride, blocksparse_block_size,
+      blocksparse_head_sliding_step);
 }
 
 // Grid: (num_heads, num_seqs).
@@ -711,26 +715,26 @@ __global__ void paged_attention_v2_reduce_kernel(
   vllm::paged_attention_v1_kernel<T, CACHE_T, HEAD_SIZE, BLOCK_SIZE,           \
                                   NUM_THREADS, KV_DTYPE, IS_BLOCK_SPARSE>      \
       <<<grid, block, shared_mem_size, stream>>>(                              \
-          out_ptr, query_ptr, key_cache_ptr, value_cache_ptr, num_kv_heads,    \
-          scale, block_tables_ptr, block_masks_ptr, seq_lens_ptr,              \
-          max_num_blocks_per_seq, alibi_slopes_ptr, q_stride, kv_block_stride, \
-          kv_head_stride, k_scale, v_scale, tp_rank, blocksparse_local_blocks, \
-          blocksparse_vert_stride, blocksparse_block_size,                     \
-          blocksparse_head_sliding_step, attn_scores_ptr);
+          out_ptr, attn_scores_ptr, query_ptr, key_cache_ptr, value_cache_ptr, \
+          num_kv_heads, scale, block_tables_ptr, block_masks_ptr,              \
+          seq_lens_ptr, max_num_blocks_per_seq, alibi_slopes_ptr, q_stride,    \
+          kv_block_stride, kv_head_stride, k_scale, v_scale, tp_rank,          \
+          blocksparse_local_blocks, blocksparse_vert_stride,                   \
+          blocksparse_block_size, blocksparse_head_sliding_step);
 
 // TODO(woosuk): Tune NUM_THREADS.
 template <typename T, typename CACHE_T, int BLOCK_SIZE,
           vllm::Fp8KVCacheDataType KV_DTYPE, bool IS_BLOCK_SPARSE,
           int NUM_THREADS = 128>
 void paged_attention_v1_launcher(
-    torch::Tensor& out, torch::Tensor& query, torch::Tensor& key_cache,
-    torch::Tensor& value_cache, int num_kv_heads, float scale,
-    torch::Tensor& block_tables, torch::Tensor& block_masks,
+    torch::Tensor& out, torch::Tensor& attn_scores, torch::Tensor& query,
+    torch::Tensor& key_cache, torch::Tensor& value_cache, int num_kv_heads,
+    float scale, torch::Tensor& block_tables, torch::Tensor& block_masks,
     torch::Tensor& seq_lens, int max_seq_len,
     const c10::optional<torch::Tensor>& alibi_slopes, float k_scale,
     float v_scale, const int tp_rank, const int blocksparse_local_blocks,
     const int blocksparse_vert_stride, const int blocksparse_block_size,
-    const int blocksparse_head_sliding_step, torch::Tensor& attn_scores) {
+    const int blocksparse_head_sliding_step) {
   int num_seqs = query.size(0);
   int num_heads = query.size(1);
   int head_size = query.size(2);
@@ -756,7 +760,7 @@ void paged_attention_v1_launcher(
   bool* block_masks_ptr = block_masks.data_ptr<bool>();
   int* seq_lens_ptr = seq_lens.data_ptr<int>();
   float* attn_scores_ptr =
-      attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
+      attn_scores.numel() > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
                               : nullptr;
 
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
@@ -806,13 +810,13 @@ void paged_attention_v1_launcher(
   }
 }
 
-#define CALL_V1_LAUNCHER(T, CACHE_T, BLOCK_SIZE, KV_DTYPE, IS_BLOCK_SPARSE)  \
-  paged_attention_v1_launcher<T, CACHE_T, BLOCK_SIZE, KV_DTYPE,              \
-                              IS_BLOCK_SPARSE>(                              \
-      out, query, key_cache, value_cache, num_kv_heads, scale, block_tables, \
-      block_masks, seq_lens, max_seq_len, alibi_slopes, k_scale, v_scale,    \
-      tp_rank, blocksparse_local_blocks, blocksparse_vert_stride,            \
-      blocksparse_block_size, blocksparse_head_sliding_step, attn_scores);
+#define CALL_V1_LAUNCHER(T, CACHE_T, BLOCK_SIZE, KV_DTYPE, IS_BLOCK_SPARSE)    \
+  paged_attention_v1_launcher<T, CACHE_T, BLOCK_SIZE, KV_DTYPE,                \
+                              IS_BLOCK_SPARSE>(                                \
+      out, attn_scores, query, key_cache, value_cache, num_kv_heads, scale,    \
+      block_tables, block_masks, seq_lens, max_seq_len, alibi_slopes, k_scale, \
+      v_scale, tp_rank, blocksparse_local_blocks, blocksparse_vert_stride,     \
+      blocksparse_block_size, blocksparse_head_sliding_step);
 
 #define CALL_V1_LAUNCHER_SPARSITY(T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE) \
   switch (is_block_sparse) {                                               \
@@ -843,8 +847,10 @@ void paged_attention_v1_launcher(
   }
 
 void paged_attention_v1(
-    torch::Tensor& out,    // [num_seqs, num_heads, head_size]
-    torch::Tensor& query,  // [num_seqs, num_heads, head_size]
+    torch::Tensor& out,          // [num_seqs, num_heads, head_size]
+    torch::Tensor& attn_scores,  // [num_seqs, num_heads, BLOCK_SIZE *
+                                 // max_num_blocks_per_seq]
+    torch::Tensor& query,        // [num_seqs, num_heads, head_size]
     torch::Tensor&
         key_cache,  // [num_blocks, num_heads, head_size/x, block_size, x]
     torch::Tensor&
@@ -860,7 +866,7 @@ void paged_attention_v1(
     const std::string& kv_cache_dtype, double k_scale, double v_scale,
     const int64_t tp_rank, const int64_t blocksparse_local_blocks,
     const int64_t blocksparse_vert_stride, const int64_t blocksparse_block_size,
-    const int64_t blocksparse_head_sliding_step, torch::Tensor& attn_scores) {
+    const int64_t blocksparse_head_sliding_step) {
   const bool is_block_sparse = (blocksparse_vert_stride > 1);
 
   DISPATCH_BY_KV_CACHE_DTYPE(query.dtype(), kv_cache_dtype,
@@ -872,13 +878,13 @@ void paged_attention_v1(
                                   NUM_THREADS, KV_DTYPE, IS_BLOCK_SPARSE,      \
                                   PARTITION_SIZE>                              \
       <<<grid, block, shared_mem_size, stream>>>(                              \
-          exp_sums_ptr, max_logits_ptr, tmp_out_ptr, query_ptr, key_cache_ptr, \
-          value_cache_ptr, num_kv_heads, scale, block_tables_ptr,              \
-          block_masks_ptr, seq_lens_ptr, max_num_blocks_per_seq,               \
-          alibi_slopes_ptr, q_stride, kv_block_stride, kv_head_stride,         \
-          k_scale, v_scale, tp_rank, blocksparse_local_blocks,                 \
+          exp_sums_ptr, max_logits_ptr, attn_scores_ptr, tmp_out_ptr,          \
+          query_ptr, key_cache_ptr, value_cache_ptr, num_kv_heads, scale,      \
+          block_tables_ptr, block_masks_ptr, seq_lens_ptr,                     \
+          max_num_blocks_per_seq, alibi_slopes_ptr, q_stride, kv_block_stride, \
+          kv_head_stride, k_scale, v_scale, tp_rank, blocksparse_local_blocks, \
           blocksparse_vert_stride, blocksparse_block_size,                     \
-          blocksparse_head_sliding_step, attn_scores_ptr);                     \
+          blocksparse_head_sliding_step);                                      \
   vllm::paged_attention_v2_reduce_kernel<T, HEAD_SIZE, NUM_THREADS,            \
                                          PARTITION_SIZE>                       \
       <<<reduce_grid, block, reduce_shared_mem_size, stream>>>(                \
@@ -890,14 +896,14 @@ template <typename T, typename CACHE_T, int BLOCK_SIZE,
           int NUM_THREADS = 128, int PARTITION_SIZE = 512>
 void paged_attention_v2_launcher(
     torch::Tensor& out, torch::Tensor& exp_sums, torch::Tensor& max_logits,
-    torch::Tensor& tmp_out, torch::Tensor& query, torch::Tensor& key_cache,
-    torch::Tensor& value_cache, int num_kv_heads, float scale,
-    torch::Tensor& block_tables, torch::Tensor& block_masks,
+    torch::Tensor& attn_scores, torch::Tensor& tmp_out, torch::Tensor& query,
+    torch::Tensor& key_cache, torch::Tensor& value_cache, int num_kv_heads,
+    float scale, torch::Tensor& block_tables, torch::Tensor& block_masks,
     torch::Tensor& seq_lens, int max_seq_len,
     const c10::optional<torch::Tensor>& alibi_slopes, float k_scale,
     float v_scale, const int tp_rank, const int blocksparse_local_blocks,
     const int blocksparse_vert_stride, const int blocksparse_block_size,
-    const int blocksparse_head_sliding_step, torch::Tensor& attn_scores) {
+    const int blocksparse_head_sliding_step) {
   int num_seqs = query.size(0);
   int num_heads = query.size(1);
   int head_size = query.size(2);
@@ -926,7 +932,7 @@ void paged_attention_v2_launcher(
   bool* block_masks_ptr = block_masks.data_ptr<bool>();
   int* seq_lens_ptr = seq_lens.data_ptr<int>();
   float* attn_scores_ptr =
-      attn_scores.size(0) > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
+      attn_scores.numel() > 0 ? reinterpret_cast<float*>(attn_scores.data_ptr())
                               : nullptr;
 
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
@@ -981,11 +987,11 @@ void paged_attention_v2_launcher(
 #define CALL_V2_LAUNCHER(T, CACHE_T, BLOCK_SIZE, KV_DTYPE, IS_BLOCK_SPARSE)  \
   paged_attention_v2_launcher<T, CACHE_T, BLOCK_SIZE, KV_DTYPE,              \
                               IS_BLOCK_SPARSE>(                              \
-      out, exp_sums, max_logits, tmp_out, query, key_cache, value_cache,     \
-      num_kv_heads, scale, block_tables, block_masks, seq_lens, max_seq_len, \
-      alibi_slopes, k_scale, v_scale, tp_rank, blocksparse_local_blocks,     \
-      blocksparse_vert_stride, blocksparse_block_size,                       \
-      blocksparse_head_sliding_step, attn_scores);
+      out, exp_sums, max_logits, attn_scores, tmp_out, query, key_cache,     \
+      value_cache, num_kv_heads, scale, block_tables, block_masks, seq_lens, \
+      max_seq_len, alibi_slopes, k_scale, v_scale, tp_rank,                  \
+      blocksparse_local_blocks, blocksparse_vert_stride,                     \
+      blocksparse_block_size, blocksparse_head_sliding_step);
 
 #define CALL_V2_LAUNCHER_SPARSITY(T, CACHE_T, BLOCK_SIZE, IS_FP8_KV_CACHE) \
   switch (is_block_sparse) {                                               \
@@ -1016,9 +1022,11 @@ void paged_attention_v2_launcher(
   }
 
 void paged_attention_v2(
-    torch::Tensor& out,         // [num_seqs, num_heads, head_size]
-    torch::Tensor& exp_sums,    // [num_seqs, num_heads, max_num_partitions]
-    torch::Tensor& max_logits,  // [num_seqs, num_heads, max_num_partitions]
+    torch::Tensor& out,          // [num_seqs, num_heads, head_size]
+    torch::Tensor& exp_sums,     // [num_seqs, num_heads, max_num_partitions]
+    torch::Tensor& max_logits,   // [num_seqs, num_heads, max_num_partitions]
+    torch::Tensor& attn_scores,  // [num_seqs, num_heads, BLOCK_SIZE *
+                                 // max_num_blocks_per_seq]
     torch::Tensor&
         tmp_out,  // [num_seqs, num_heads, max_num_partitions, head_size]
     torch::Tensor& query,  // [num_seqs, num_heads, head_size]
@@ -1037,7 +1045,7 @@ void paged_attention_v2(
     const std::string& kv_cache_dtype, double k_scale, double v_scale,
     const int64_t tp_rank, const int64_t blocksparse_local_blocks,
     const int64_t blocksparse_vert_stride, const int64_t blocksparse_block_size,
-    const int64_t blocksparse_head_sliding_step, torch::Tensor& attn_scores) {
+    const int64_t blocksparse_head_sliding_step) {
   const bool is_block_sparse = (blocksparse_vert_stride > 1);
   DISPATCH_BY_KV_CACHE_DTYPE(query.dtype(), kv_cache_dtype,
                              CALL_V2_LAUNCHER_BLOCK_SIZE)

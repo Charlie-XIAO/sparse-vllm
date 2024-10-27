@@ -137,10 +137,17 @@ class PagedAttention:
         use_v1 = (max_seq_len <= 8192
                   and (max_num_partitions == 1 or num_seqs * num_heads > 512))
 
+        # The PagedAttention kernel needs the tensor to be mutable so it cannot
+        # be wrapped as optional (otherwise it is non-const l-value reference);
+        # hence we pass an empty tensor instead
+        if attn_scores is None:
+            attn_scores = torch.zeros(0, device=output.device)
+
         if use_v1:
             # Run PagedAttention V1.
             ops.paged_attention_v1(
                 output,
+                attn_scores,
                 query,
                 key_cache,
                 value_cache,
@@ -160,7 +167,6 @@ class PagedAttention:
                 blocksparse_vert_stride,
                 blocksparse_block_size,
                 blocksparse_head_sliding_step,
-                attn_scores,
             )
         else:
             # Run PagedAttention V2.
@@ -180,6 +186,7 @@ class PagedAttention:
                 output,
                 exp_sums,
                 max_logits,
+                attn_scores,
                 tmp_output,
                 query,
                 key_cache,
@@ -200,7 +207,6 @@ class PagedAttention:
                 blocksparse_vert_stride,
                 blocksparse_block_size,
                 blocksparse_head_sliding_step,
-                attn_scores,
             )
         return output
 

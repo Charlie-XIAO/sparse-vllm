@@ -203,7 +203,6 @@ class OPTDecoder(nn.Module):
         self.padding_idx = config.pad_token_id
         self.max_target_positions = config.max_position_embeddings
         self.vocab_size = config.vocab_size
-        self.block_size = cache_config.block_size
 
         self.embed_tokens = VocabParallelEmbedding(
             config.vocab_size,
@@ -256,6 +255,7 @@ class OPTDecoder(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         inputs_embeds: Optional[torch.Tensor] = None,
+        all_attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings(input_ids)
@@ -264,31 +264,14 @@ class OPTDecoder(nn.Module):
             inputs_embeds, _ = self.project_in(inputs_embeds)
         hidden_states = inputs_embeds + pos_embeds
 
-        # Get the maximum number of blocks needs among the sequences we process
-        if attn_metadata.decode_metadata:
-            max_num_blocks = max(
-                len(item)
-                for item in attn_metadata.decode_metadata.block_tables)
-        if attn_metadata.prefill_metadata:
-            max_num_blocks = max(
-                len(item)
-                for item in attn_metadata.prefill_metadata.block_tables)
-
         for i in range(len(self.layers)):
             layer = self.layers[i]
-            layer_attn_scores = torch.zeros(hidden_states.size(0),
-                                            self.config.num_attention_heads,
-                                            self.block_size * max_num_blocks,
-                                            device="cuda",
-                                            dtype=torch.float32)
-            hidden_states = layer(hidden_states, kv_caches[i], attn_metadata,
-                                  layer_attn_scores)
-
-            # TODO(Charlie-XIAO): this is dummy code to check that things are
-            # working; we still need to use the attention scores correctly
-            if layer_attn_scores.numel() > 0:
-                print(f"Layer {i}")
-                print(layer_attn_scores.mean(dim=1))
+            attn_scores = all_attn_scores[
+                i] if all_attn_scores is not None else None
+            hidden_states = layer(hidden_states,
+                                  kv_caches[i],
+                                  attn_metadata,
+                                  attn_scores=attn_scores)
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)
@@ -318,12 +301,14 @@ class OPTModel(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         inputs_embeds: Optional[torch.Tensor] = None,
+        all_attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         return self.decoder(input_ids,
                             positions,
                             kv_caches,
                             attn_metadata,
-                            inputs_embeds=inputs_embeds)
+                            inputs_embeds=inputs_embeds,
+                            all_attn_scores=all_attn_scores)
 
 
 class OPTForCausalLM(nn.Module):
@@ -345,6 +330,7 @@ class OPTForCausalLM(nn.Module):
                                           config.word_embed_proj_dim)
         self.logits_processor = LogitsProcessor(config.vocab_size)
         self.sampler = Sampler()
+        self.all_attn_scores: Optional[torch.Tensor] = None
 
     def forward(
         self,
@@ -354,8 +340,48 @@ class OPTForCausalLM(nn.Module):
         attn_metadata: AttentionMetadata,
         intermediate_tensors: Optional[IntermediateTensors] = None,
     ) -> torch.Tensor:
-        hidden_states = self.model(input_ids, positions, kv_caches,
-                                   attn_metadata)
+        # TODO(Charlie-XIAO): We should initialize `all_attn_scores` optionally,
+        # depending on whether we are using KV cache sparsification methods that
+        # need them; for this we need to pass some flag all the way to here
+        if True:  # PLACEHOLDER
+            # Number of slots, which is the second dimension of the block masks,
+            # equal to block size times the maximum number of blocks among the
+            # sequences to process; this would be the third dimension of the
+            # attention scores per layer
+            num_slots = 0
+            if decode_meta := attn_metadata.decode_metadata:
+                num_slots = decode_meta.block_masks.size(1)
+            elif prefill_meta := attn_metadata.prefill_metadata:
+                num_slots = prefill_meta.block_masks.size(1)
+
+            # The first dimension is the number of layers, and the rest of the
+            # dimensions would be the per-layer attention scores to be written
+            # by the attention kernel
+            self.all_attn_scores = torch.zeros(
+                self.config.num_hidden_layers,
+                input_ids.size(0),  # num_seqs
+                self.config.num_attention_heads,
+                num_slots,
+                dtype=torch.float32,
+                device=input_ids.device)
+
+        hidden_states = self.model(input_ids,
+                                   positions,
+                                   kv_caches,
+                                   attn_metadata,
+                                   all_attn_scores=self.all_attn_scores)
+
+        # TODO(Charlie-XIAO): Change this placeholder that only showcase things
+        # can work; we need a method that the model runner can call to extract
+        # the attention scores and pass to other parts of the system
+        if self.all_attn_scores is not None:
+            for i in range(self.config.num_hidden_layers):
+                print(f"Layer {i}")
+                print(self.all_attn_scores[i].mean(dim=1))
+            print("\n---------------------------------------------\n")
+        else:
+            print("\n------------ NO ATTENTION SCORES ------------\n")
+
         return hidden_states
 
     def compute_logits(
