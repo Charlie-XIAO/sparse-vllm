@@ -741,3 +741,6 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         if device == Device.CPU:
             return self.cpu_allocator.get_prefix_cache_hit_rate()
         raise ValueError(f"Invalid device: {device}")
+
+    def inactivate_slots(self, seq_id: int, slots: List[int]) -> None:
+        self.block_tables[seq_id].inactivate_slots(slots)

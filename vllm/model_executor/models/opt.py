@@ -339,11 +339,9 @@ class OPTForCausalLM(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         intermediate_tensors: Optional[IntermediateTensors] = None,
+        record_attn_scores: bool = False,
     ) -> torch.Tensor:
-        # TODO(Charlie-XIAO): We should initialize `all_attn_scores` optionally,
-        # depending on whether we are using KV cache sparsification methods that
-        # need them; for this we need to pass some flag all the way to here
-        if True:  # PLACEHOLDER
+        if record_attn_scores:
             # Number of slots, which is the second dimension of the block masks,
             # equal to block size times the maximum number of blocks among the
             # sequences to process; this would be the third dimension of the
@@ -370,18 +368,6 @@ class OPTForCausalLM(nn.Module):
                                    kv_caches,
                                    attn_metadata,
                                    all_attn_scores=self.all_attn_scores)
-
-        # TODO(Charlie-XIAO): Change this placeholder that only showcase things
-        # can work; we need a method that the model runner can call to extract
-        # the attention scores and pass to other parts of the system
-        if self.all_attn_scores is not None:
-            for i in range(self.config.num_hidden_layers):
-                print(f"Layer {i}")
-                print(self.all_attn_scores[i].mean(dim=1))
-            print("\n---------------------------------------------\n")
-        else:
-            print("\n------------ NO ATTENTION SCORES ------------\n")
-
         return hidden_states
 
     def compute_logits(

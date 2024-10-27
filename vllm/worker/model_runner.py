@@ -90,6 +90,7 @@ class ModelInputForGPU(ModelRunnerInputBase):
     """
     input_tokens: Optional[torch.Tensor] = None
     input_positions: Optional[torch.Tensor] = None
+    seq_ids: Optional[List[int]] = None
     seq_lens: Optional[List[int]] = None
     query_lens: Optional[List[int]] = None
     lora_mapping: Optional["LoRAMapping"] = None
@@ -778,11 +779,13 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                 for cur_input_positions in inter_data.input_positions:
                     input_positions.extend(cur_input_positions)
 
+        seq_ids = []
         seq_lens = []
         query_lens = []
         max_decode_seq_len = 0
         max_encoder_seq_len = 0
         for inter_data in self.inter_data_list:
+            seq_ids.extend(inter_data.seq_ids)
             seq_lens.extend(inter_data.seq_lens)
             query_lens.extend(inter_data.query_lens)
             if not inter_data.is_prompt:
@@ -901,6 +904,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             input_tokens=input_tokens_tensor,
             input_positions=input_positions_tensor,
             attn_metadata=attn_metadata,
+            seq_ids=seq_ids,
             seq_lens=seq_lens,
             query_lens=query_lens,
             lora_mapping=lora_mapping,
@@ -1592,12 +1596,18 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_forward_end = torch.cuda.Event(enable_timing=True)
             model_forward_start.record()
 
+        # TODO(Charlie-XIAO): This is placeholder; it should depend on whether
+        # we are using KV cache sparsification (and maybe which sparsification
+        # method we are using)
+        record_attn_scores = True
+
         hidden_or_intermediate_states = model_executable(
             input_ids=model_input.input_tokens,
             positions=model_input.input_positions,
             kv_caches=kv_caches,
             attn_metadata=model_input.attn_metadata,
             intermediate_tensors=intermediate_tensors,
+            record_attn_scores=record_attn_scores,
             **MultiModalInputs.as_kwargs(multi_modal_kwargs,
                                          device=self.device),
             **seqlen_agnostic_kwargs)
@@ -1670,6 +1680,20 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                 hidden_states = hidden_or_intermediate_states
 
             output.hidden_states = hidden_states
+
+        if record_attn_scores and self.model.all_attn_scores.numel() > 0:
+            assert (model_input.seq_ids is not None
+                    and model_input.seq_lens is not None)
+
+            # Split the attention scores tensor by the num_seqs dimension and
+            # map from corresponding sequence ID for easier access; note that
+            # each per-sequence attention scores tensor is stripped to their
+            # actual sequence length so that no padding is involved
+            output.seq_ids_to_attn_scores = {
+                seq_id: self.model.all_attn_scores[:, i, :, :seq_len]
+                for i, (seq_id, seq_len) in enumerate(
+                    zip(model_input.seq_ids, model_input.seq_lens))
+            }
 
         return [output]
 

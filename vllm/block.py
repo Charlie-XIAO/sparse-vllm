@@ -99,3 +99,12 @@ class BlockTable:
 
     def masks(self) -> List[np.ndarray]:
         return self._block_masks
+
+    def inactivate_slots(self, slots: List[int]):
+        # NOTE(Charlie-XIAO): This is assuming that the block sizes of all
+        # physical blocks in this block table are the same. This also assumes
+        # that the physical blocks are logically contiguous.
+        block_size = self._blocks[0].block_size
+        for slot in slots:
+            i, j = divmod(slot, block_size)
+            self._block_masks[i][j] = False

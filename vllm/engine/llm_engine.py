@@ -1264,6 +1264,34 @@ class LLMEngine:
             outputs = self.model_executor.execute_model(
                 execute_model_req=execute_model_req)
 
+            for output in outputs:
+                if output.seq_ids_to_attn_scores is None:
+                    continue
+                if self.scheduler_config.use_v2_block_manager:
+                    raise NotImplementedError  # TODO(Charlie-XIAO)
+
+                for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
+                ):
+                    # TODO(Charlie-XIAO): This is placeholder code that
+                    # showcase we can obtain the per-sequence attention
+                    # scores here
+                    print(f"Sequence {seq_id}")
+                    print(attn_scores.mean(dim=1))
+                for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
+                ):
+                    # TODO(Charlie-XIAO): This is currently randomly
+                    # inactivating some slots. The actual decision should be
+                    # according to a certain KV cache sparsification method,
+                    # mostly likely based on the attention scores
+                    import random
+                    evicted_slot = random.randint(0, attn_scores.size(2) - 1)
+                    print(
+                        f"Evicted slot {evicted_slot} from sequence {seq_id}")
+                    self.scheduler[
+                        virtual_engine].block_manager.inactivate_slots(
+                            seq_id, [evicted_slot])
+                print("\n-----------------------------------------------\n")
+
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
