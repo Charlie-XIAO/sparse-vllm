@@ -38,6 +38,9 @@ VLLM_TARGET_DEVICE = envs.VLLM_TARGET_DEVICE
 DISABLE_FLASH_ATTN_BUILD = (envs.VLLM_ATTENTION_BACKEND is not None
                             and envs.VLLM_ATTENTION_BACKEND != "FLASH_ATTN")
 
+# Disable MOE build if explicitly stated
+DISABLE_MOE_BUILD = os.environ.get("DISABLE_MOE_BUILD", "0")
+
 if not sys.platform.startswith("linux"):
     logger.warning(
         "vLLM only supports Linux platform (including WSL). "
@@ -140,6 +143,9 @@ class cmake_build_ext(build_ext):
 
         if DISABLE_FLASH_ATTN_BUILD:
             cmake_args += ['-DENABLE_FLASH_ATTN_BUILD=OFF']
+
+        if DISABLE_MOE_BUILD == "1":
+            cmake_args += ['-DENABLE_MOE_BUILD=OFF']
 
         if is_sccache_available():
             cmake_args += [
@@ -464,7 +470,7 @@ ext_modules = []
 if _build_core_ext():
     ext_modules.append(CMakeExtension(name="vllm._core_C"))
 
-if _is_cuda() or _is_hip():
+if (_is_cuda() or _is_hip()) and not DISABLE_MOE_BUILD:
     ext_modules.append(CMakeExtension(name="vllm._moe_C"))
 
 if _is_hip():
