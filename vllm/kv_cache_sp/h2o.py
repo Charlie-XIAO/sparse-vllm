@@ -32,7 +32,6 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
             self.seq_ids_to_cum_attn_scores[seq_id] += agg_attn_scores
         else:
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
-        print(f"Sequence {seq_id}: {agg_attn_scores}")
 
         mask = np.concatenate(
             block_manager.block_tables[seq_id].masks())[:num_slots]
@@ -71,8 +70,16 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         slots_to_evict = np.where(evict_mask & mask)[0]
 
         block_manager.deactivate_slots(seq_id, slots_to_evict)
+        # TODO(Charlie-XIAO): Remove print
+        print(f"Sequence {seq_id}: Evicted slots {slots_to_evict.tolist()}")
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         for output in outputs:
             for seq_id in output.seq_ids:
                 self.seq_ids_to_cum_attn_scores.pop(seq_id, None)
+
+        # TODO(Charlie-XIAO): Remove print
+        print("\n----\n")
+        for seq_id, cum_attn_scores in self.seq_ids_to_cum_attn_scores.items():
+            print(f"Sequence {seq_id}: {cum_attn_scores}")
+        print("\n----------------------------------------------------------\n")

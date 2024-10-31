@@ -23,7 +23,7 @@ class KVCacheSparsifierBase(ABC):
     def step(self, block_manager: BlockSpaceManagerV1, seq_id: int,
              attn_scores: torch.Tensor) -> None:
         """Proceed by one iteration.
-        
+
         This will instruct the block manager to deactivate specific blocks if we
         are running out of KV cache budget. Subclasses must implement this
         abstract method.
@@ -35,7 +35,7 @@ class KVCacheSparsifierBase(ABC):
     @abstractmethod
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         """Clean up the sparsifier itself.
-        
+
         Some KV cache sparsifiers store additional information internally, among
         which some may never be used again. This function should thus manage the
         cleanup when possible. Subclasses must implement this abstract method,

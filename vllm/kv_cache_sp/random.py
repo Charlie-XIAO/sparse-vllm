@@ -10,8 +10,9 @@ from vllm.outputs import RequestOutput
 
 class RandomKVCacheSparsifier(KVCacheSparsifierBase):
     """A random KV cache sparsifier.
-    
-    TODO(Charlie-XIAO): explain
+
+    This is completely for experimental purposes. It randomly evicts tokens
+    when exceeding KV cache budget which makes no sense.
     """
 
     def step(self, block_manager: BlockSpaceManagerV1, seq_id: int,
