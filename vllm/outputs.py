@@ -72,6 +72,7 @@ class RequestOutput:
 
     Args:
         request_id: The unique ID of the request.
+        seq_ids: The list of IDs of sequences in the request.
         prompt: The prompt string of the request.
                 For encoder/decoder models, this is the
                 decoder input prompt.
@@ -92,6 +93,7 @@ class RequestOutput:
     def __init__(
         self,
         request_id: str,
+        seq_ids: List[int],
         prompt: Optional[str],
         prompt_token_ids: Optional[List[int]],
         prompt_logprobs: Optional[PromptLogprobs],
@@ -103,6 +105,7 @@ class RequestOutput:
         encoder_prompt_token_ids: Optional[List[int]] = None,
     ) -> None:
         self.request_id = request_id
+        self.seq_ids = seq_ids
         self.prompt = prompt
         self.prompt_token_ids = prompt_token_ids
         self.prompt_logprobs = prompt_logprobs
@@ -130,6 +133,7 @@ class RequestOutput:
         if use_cache and seq_group.cached_request_output is None:
             seq_group.cached_request_output = RequestOutput(  # type: ignore
                 request_id="",
+                seq_ids=[],
                 prompt=None,
                 prompt_token_ids=[],
                 prompt_logprobs=None,
@@ -137,6 +141,7 @@ class RequestOutput:
                 finished=False)
 
         seqs = seq_group.get_seqs()
+        seq_ids = [seq.seq_id for seq in seqs]
         if len(seqs) == 1:
             top_n_seqs = seqs
         else:
@@ -237,7 +242,7 @@ class RequestOutput:
         finished_time = time.time() if finished else None
         seq_group.set_finished_time(finished_time)
 
-        init_args = (seq_group.request_id, prompt, prompt_token_ids,
+        init_args = (seq_group.request_id, seq_ids, prompt, prompt_token_ids,
                      prompt_logprobs, outputs, finished, seq_group.metrics,
                      seq_group.lora_request, encoder_prompt,
                      encoder_prompt_token_ids)
@@ -253,6 +258,7 @@ class RequestOutput:
 
     def __repr__(self) -> str:
         return (f"RequestOutput(request_id={self.request_id}, "
+                f"seq_ids={self.seq_ids}, "
                 f"prompt={self.prompt!r}, "
                 f"prompt_token_ids={self.prompt_token_ids}, "
                 f"encoder_prompt={self.encoder_prompt!r}, "

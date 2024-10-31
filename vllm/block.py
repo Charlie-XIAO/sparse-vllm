@@ -40,7 +40,11 @@ class PhysicalTokenBlock:
 
 
 class BlockTable:
-    """Holds a list of blocks with caching of their associated block_ids 
+    """Holds a list of blocks with caching of their associated block_ids.
+
+    Each slot in the block mask is True if that slot is active and False if that
+    slot is inactive. Note that all slots are initially marked as active even if
+    they are not yet occupied.
     """
 
     def __init__(self, blocks: Optional[List[PhysicalTokenBlock]] = None):
@@ -73,14 +77,14 @@ class BlockTable:
             blocks = value
             self._blocks[key] = blocks
             self._block_ids[key] = [b.block_number for b in blocks]
-            self._block_ids[key] = [self._get_fresh_mask(b) for b in blocks]
+            self._block_masks[key] = [self._get_fresh_mask(b) for b in blocks]
         else:
             block = value
             self._blocks[key] = block
             self._block_ids[key] = block.block_number
             self._block_masks[key] = self._get_fresh_mask(block)
 
-    def _get_fresh_mask(self, block: PhysicalTokenBlock):
+    def _get_fresh_mask(self, block: PhysicalTokenBlock) -> np.ndarray:
         return np.ones(block.block_size, dtype=np.bool_)
 
     def reset(self):
@@ -100,11 +104,17 @@ class BlockTable:
     def masks(self) -> List[np.ndarray]:
         return self._block_masks
 
-    def inactivate_slots(self, slots: List[int]):
+    def _set_slots_status(self, slots: List[int], status: bool):
         # NOTE(Charlie-XIAO): This is assuming that the block sizes of all
         # physical blocks in this block table are the same. This also assumes
         # that the physical blocks are logically contiguous.
         block_size = self._blocks[0].block_size
         for slot in slots:
             i, j = divmod(slot, block_size)
-            self._block_masks[i][j] = False
+            self._block_masks[i][j] = status
+
+    def deactivate_slots(self, slots: List[int]):
+        self._set_slots_status(slots, False)
+
+    def activate_slots(self, slots: List[int]):
+        self._set_slots_status(slots, True)

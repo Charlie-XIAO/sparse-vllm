@@ -321,15 +321,6 @@ __device__ void paged_attention_kernel(
         logits[token_idx - start_token_idx] = mask ? 0.f : qk;
         // Update the max value.
         qk_max = mask ? qk_max : fmaxf(qk_max, qk);
-
-        // Shape (num_seqs, num_heads, BLOCK_SIZE * max_num_blocks_per_seq)
-        if (attn_scores != nullptr && !mask) {
-          attn_scores[seq_idx * num_heads * BLOCK_SIZE *
-                          max_num_blocks_per_seq +
-                      head_idx * BLOCK_SIZE * max_num_blocks_per_seq +
-                      token_idx - start_token_idx] =
-              logits[token_idx - start_token_idx];
-        }
       }
     }
   }
@@ -381,6 +372,24 @@ __device__ void paged_attention_kernel(
     float* exp_sums_ptr = exp_sums + seq_idx * num_heads * max_num_partitions +
                           head_idx * max_num_partitions + partition_idx;
     *exp_sums_ptr = exp_sum;
+  }
+
+  if (attn_scores != nullptr) {
+    for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
+         block_idx += NUM_WARPS) {
+      for (int i = 0; i < NUM_TOKENS_PER_THREAD_GROUP; i++) {
+        const int physical_block_offset =
+            (thread_group_idx + i * WARP_SIZE) % BLOCK_SIZE;
+        const int token_idx = block_idx * BLOCK_SIZE + physical_block_offset;
+        if (thread_group_offset == 0) {
+          attn_scores[seq_idx * num_heads * BLOCK_SIZE *
+                          max_num_blocks_per_seq +
+                      head_idx * BLOCK_SIZE * max_num_blocks_per_seq +
+                      token_idx - start_token_idx] =
+              logits[token_idx - start_token_idx];
+        }
+      }
+    }
   }
 
   // Each thread will fetch 16 bytes from the value cache at a time.

@@ -118,9 +118,8 @@ class SamplerOutput(
     model_execute_time: Optional[float] = None
 
     # Mapping from sequence IDs to their corresponding attention score tensors.
-    # Each attention score tensor is of shape (num_layers, num_heads, block_size
-    # * num_blocks). Note that here `num_blocks` is the actual number of blocks
-    # without being padded with other sequences that are processed together.
+    # Each attention score is of shape (num_layers, num_heads, num_tokens), and
+    # we ensure that they are located on CPU
     seq_ids_to_attn_scores: Optional[Dict[int, torch.Tensor]] = None
 
     def __getitem__(self, idx: int):

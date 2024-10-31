@@ -1689,8 +1689,9 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             # map from corresponding sequence ID for easier access; note that
             # each per-sequence attention scores tensor is stripped to their
             # actual sequence length so that no padding is involved
+            all_attn_scores = self.model.all_attn_scores.cpu()
             output.seq_ids_to_attn_scores = {
-                seq_id: self.model.all_attn_scores[:, i, :, :seq_len]
+                seq_id: all_attn_scores[:, i, :, :seq_len]
                 for i, (seq_id, seq_len) in enumerate(
                     zip(model_input.seq_ids, model_input.seq_lens))
             }

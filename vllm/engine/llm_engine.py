@@ -31,6 +31,7 @@ from vllm.executor.ray_utils import initialize_ray_cluster
 from vllm.inputs import (INPUT_REGISTRY, EncoderDecoderLLMInputs,
                          InputRegistry, LLMInputs, PromptInputs)
 from vllm.inputs.preprocess import InputPreprocessor
+from vllm.kv_cache_sp import get_kv_cache_sparsifier
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.layers.sampler import SamplerOutput
@@ -463,6 +464,13 @@ class LLMEngine:
                     get_tokenizer_for_seq,
                 ),
             ))
+
+        # TODO(Charlie-XIAO): This should be optional and dependent
+        kv_cache_sparsifier_cls = get_kv_cache_sparsifier("h2o")
+        self.kv_cache_sparsifier = kv_cache_sparsifier_cls(
+            num_tokens_budget=20,
+            num_tokens_per_eviction=1,
+        )
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1272,25 +1280,9 @@ class LLMEngine:
 
                 for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
                 ):
-                    # TODO(Charlie-XIAO): This is placeholder code that
-                    # showcase we can obtain the per-sequence attention
-                    # scores here
-                    print(f"Sequence {seq_id}")
-                    print(attn_scores.mean(dim=1))
-                for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
-                ):
-                    # TODO(Charlie-XIAO): This is currently randomly
-                    # inactivating some slots. The actual decision should be
-                    # according to a certain KV cache sparsification method,
-                    # mostly likely based on the attention scores
-                    import random
-                    evicted_slot = random.randint(0, attn_scores.size(2) - 1)
-                    print(
-                        f"Evicted slot {evicted_slot} from sequence {seq_id}")
-                    self.scheduler[
-                        virtual_engine].block_manager.inactivate_slots(
-                            seq_id, [evicted_slot])
-                print("\n-----------------------------------------------\n")
+                    self.kv_cache_sparsifier.step(
+                        self.scheduler[virtual_engine].block_manager, seq_id,
+                        attn_scores)
 
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
@@ -1340,6 +1332,7 @@ class LLMEngine:
                 self.do_tracing(scheduler_outputs)
         else:
             # Multi-step case
+            self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
             return ctx.request_outputs
 
         if not self.has_unfinished_requests():
@@ -1356,6 +1349,7 @@ class LLMEngine:
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
 
+        self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
         return ctx.request_outputs
 
     def _has_remaining_steps(
