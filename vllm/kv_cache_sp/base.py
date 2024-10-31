@@ -40,5 +40,11 @@ class KVCacheSparsifierBase(ABC):
         which some may never be used again. This function should thus manage the
         cleanup when possible. Subclasses must implement this abstract method,
         even if it is no-op.
+
+        Parameters
+        ----------
+        outputs : List[RequestOutput]
+            The request outputs, which carry information about the requests that
+            have been completed.
         """
         pass
