@@ -374,6 +374,9 @@ __device__ void paged_attention_kernel(
     *exp_sums_ptr = exp_sum;
   }
 
+  // If we are recording attention scores, do it here
+  // TODO(Charlie-XIAO): This is essentially copying the iteration logic from
+  // when computing KV, but there may be opportunity to simplify?
   if (attn_scores != nullptr) {
     for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
          block_idx += NUM_WARPS) {
