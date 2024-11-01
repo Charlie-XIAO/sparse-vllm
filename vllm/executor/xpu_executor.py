@@ -66,7 +66,7 @@ class XPUExecutor(GPUExecutor):
         return (worker_module_name, worker_class_name, worker_class_fn)
 
     def execute_model(
-        self, execute_model_req: ExecuteModelRequest
+        self, execute_model_req: ExecuteModelRequest, record_attn_scores: bool
     ) -> Optional[List[Union[SamplerOutput, PoolerOutput]]]:
         output = self.driver_worker.execute_model(execute_model_req)
         return output

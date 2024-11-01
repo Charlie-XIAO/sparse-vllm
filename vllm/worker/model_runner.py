@@ -1551,6 +1551,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         kv_caches: List[torch.Tensor],
         intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
+        record_attn_scores: bool = False,
     ) -> Optional[Union[List[SamplerOutput], IntermediateTensors]]:
         if num_steps > 1:
             raise ValueError("num_steps > 1 is not supported in ModelRunner")
@@ -1595,11 +1596,6 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_forward_start = torch.cuda.Event(enable_timing=True)
             model_forward_end = torch.cuda.Event(enable_timing=True)
             model_forward_start.record()
-
-        # TODO(Charlie-XIAO): This is placeholder; it should depend on whether
-        # we are using KV cache sparsification (and maybe which sparsification
-        # method we are using)
-        record_attn_scores = True
 
         hidden_or_intermediate_states = model_executable(
             input_ids=model_input.input_tokens,

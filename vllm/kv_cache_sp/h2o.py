@@ -16,9 +16,8 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
     https://proceedings.neurips.cc/paper_files/paper/2023/file/6ceefa7b15572587b78ecfcebb2827f8-Paper-Conference.pdf
     """
 
-    def __init__(self, num_tokens_budget: int,
-                 num_tokens_per_eviction: int) -> None:
-        super().__init__(num_tokens_budget, num_tokens_per_eviction)
+    def __init__(self, budget: int, num_per_evict: int) -> None:
+        super().__init__(budget, num_per_evict)
 
         self.seq_ids_to_cum_attn_scores: Dict[int, torch.Tensor] = {}
 
@@ -37,13 +36,13 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         else:
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
 
-        if num_active_slots <= self.num_tokens_budget:
+        if num_active_slots <= self.budget:
             # We have not exceeded the budget so no need for eviction
             return (False, num_active_slots, num_total_slots)
 
         # We should keep the k last tokens and the k tokens from the rest with
         # the highest attention scores
-        num_keep = self.num_tokens_budget - self.num_tokens_per_eviction + 1
+        num_keep = self.budget - self.num_per_evict + 1
         k = num_keep // 2
         k_last = (num_keep + 1) // 2
 

@@ -11,12 +11,11 @@ from vllm.outputs import RequestOutput
 class KVCacheSparsifierBase(ABC):
     """Base class for KV cache sparsifiers."""
 
-    def __init__(self, num_tokens_budget: int,
-                 num_tokens_per_eviction: int) -> None:
-        self.num_tokens_budget = num_tokens_budget
-        self.num_tokens_per_eviction = num_tokens_per_eviction
+    def __init__(self, budget: int, num_per_evict: int) -> None:
+        self.budget = budget
+        self.num_per_evict = num_per_evict
 
-        if self.num_tokens_per_eviction >= self.num_tokens_budget:
+        if self.num_per_evict >= self.budget:
             raise ValueError("The number of tokens per KV cache eviction must "
                              "be strictly less than the KV cache budget")
 

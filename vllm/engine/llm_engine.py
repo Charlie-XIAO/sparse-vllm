@@ -240,7 +240,9 @@ class LLMEngine:
             "seed=%d, served_model_name=%s, use_v2_block_manager=%s, "
             "num_scheduler_steps=%d, multi_step_stream_outputs=%s, "
             "enable_prefix_caching=%s, use_async_output_proc=%s, "
-            "use_cached_outputs=%s, mm_processor_kwargs=%s)",
+            "use_cached_outputs=%s, mm_processor_kwargs=%s, "
+            "sparse_kv_cache_method=%s, sparse_kv_cache_budget=%s, "
+            "sparse_kv_cache_num_per_evict=%s",
             VLLM_VERSION,
             model_config.model,
             speculative_config,
@@ -276,6 +278,9 @@ class LLMEngine:
             model_config.use_async_output_proc,
             use_cached_outputs,
             model_config.mm_processor_kwargs,
+            cache_config.sparse_kv_cache_method,
+            cache_config.sparse_kv_cache_budget,
+            cache_config.sparse_kv_cache_num_per_evict,
         )
         # TODO(woosuk): Print more configs in debug mode.
         from vllm.plugins import load_general_plugins
@@ -465,12 +470,16 @@ class LLMEngine:
                 ),
             ))
 
-        # TODO(Charlie-XIAO): This should be optional and dependent
-        kv_cache_sparsifier_cls = get_kv_cache_sparsifier("h2o")
-        self.kv_cache_sparsifier = kv_cache_sparsifier_cls(
-            num_tokens_budget=1024,
-            num_tokens_per_eviction=1,
-        )
+        # Create a KV cache specifier if needed
+        if self.cache_config.sparse_kv_cache_method is not None:
+            kv_cache_sparsifier_cls = get_kv_cache_sparsifier(
+                self.cache_config.sparse_kv_cache_method)
+            self.kv_cache_sparsifier = kv_cache_sparsifier_cls(
+                budget=self.cache_config.sparse_kv_cache_budget,
+                num_per_evict=self.cache_config.sparse_kv_cache_num_per_evict,
+            )
+        else:
+            self.kv_cache_sparsifier = None
 
     def _initialize_kv_caches(self) -> None:
         """Initialize the KV cache in the worker(s).
@@ -1270,29 +1279,34 @@ class LLMEngine:
                     virtual_engine]
 
             outputs = self.model_executor.execute_model(
-                execute_model_req=execute_model_req)
+                execute_model_req=execute_model_req,
+                record_attn_scores=self.kv_cache_sparsifier is not None)
 
-            stat_num_active_slots = 0
-            stat_num_total_slots = 0
-            for output in outputs:
-                if output.seq_ids_to_attn_scores is None:
-                    continue
-                if self.scheduler_config.use_v2_block_manager:
-                    raise NotImplementedError  # TODO(Charlie-XIAO)
+            # Advance the KV cache sparsifier by one step if we have it
+            if self.kv_cache_sparsifier is not None:
+                stat_num_active_slots = 0
+                stat_num_total_slots = 0
+                for output in outputs:
+                    if output.seq_ids_to_attn_scores is None:
+                        continue
+                    if self.scheduler_config.use_v2_block_manager:
+                        raise NotImplementedError  # TODO(Charlie-XIAO)
 
-                for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
-                ):
-                    (_, num_active_slots,
-                     num_total_slots) = self.kv_cache_sparsifier.step(
-                         self.scheduler[virtual_engine].block_manager, seq_id,
-                         attn_scores)
-                    stat_num_active_slots += num_active_slots
-                    stat_num_total_slots += num_total_slots
+                    for (seq_id,
+                         attn_scores) in output.seq_ids_to_attn_scores.items():
+                        (_, num_active_slots,
+                         num_total_slots) = self.kv_cache_sparsifier.step(
+                             self.scheduler[virtual_engine].block_manager,
+                             seq_id, attn_scores)
+                        stat_num_active_slots += num_active_slots
+                        stat_num_total_slots += num_total_slots
 
-            if envs.VLLM_CS243_PRINT_FRAGMENTATION and stat_num_total_slots > 0:
-                print(
-                    f"#CS243#,{stat_num_active_slots},{stat_num_total_slots}\n",
-                    end="")
+                if (envs.VLLM_CS243_PRINT_FRAGMENTATION
+                        and stat_num_total_slots > 0):
+                    print(
+                        f"#CS243#,{stat_num_active_slots},"
+                        f"{stat_num_total_slots}\n",
+                        end="")
 
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
@@ -1342,7 +1356,10 @@ class LLMEngine:
                 self.do_tracing(scheduler_outputs)
         else:
             # Multi-step case
-            self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
+            if self.kv_cache_sparsifier is not None:
+                # Clean the KV cache specifier right before return so that it
+                # has the most up-to-date information
+                self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
             return ctx.request_outputs
 
         if not self.has_unfinished_requests():
@@ -1359,7 +1376,10 @@ class LLMEngine:
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
 
-        self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
+        if self.kv_cache_sparsifier is not None:
+            # Clean the KV cache specifier right before return so that it has
+            # the most up-to-date information
+            self.kv_cache_sparsifier.clean_self(ctx.request_outputs)
         return ctx.request_outputs
 
     def _has_remaining_steps(

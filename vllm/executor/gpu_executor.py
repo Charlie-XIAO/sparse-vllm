@@ -125,9 +125,10 @@ class GPUExecutor(ExecutorBase):
         self.driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
 
     def execute_model(
-        self, execute_model_req: ExecuteModelRequest
+        self, execute_model_req: ExecuteModelRequest, record_attn_scores: bool
     ) -> Optional[List[Union[SamplerOutput, PoolerOutput]]]:
-        output = self.driver_worker.execute_model(execute_model_req)
+        output = self.driver_worker.execute_model(execute_model_req,
+                                                  record_attn_scores)
         return output
 
     def add_lora(self, lora_request: LoRARequest) -> bool:

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Experiment of measuring internal fragmentations."""
 
+import argparse
 import os
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -17,29 +17,40 @@ LOGS_DIR = CURRENT_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
 
-def main():
-    now = datetime.now()
-    now_repr = now.strftime("%Y%m%d-%H%M%S-%f")
-
-    model_name = "facebook/opt-125m"
-    dataset_name = "ShareGPT_V3_unfiltered_cleaned_split.json"
+def main(args):
+    print(args)
+    args_repr = ("fragmentation--"
+                 f"{args.sparse_kv_cache_method}-"
+                 f"{args.sparse_kv_cache_budget}-"
+                 f"{args.sparse_kv_cache_num_per_evict}")
 
     # Make sure that the target dataset exists
-    dataset_path = BENCH_DIR / dataset_name
+    dataset_path = BENCH_DIR / args.dataset_path
     if not dataset_path.exists():
         print(f"\033[31;1mERROR:\033[0m Dataset not found at: {dataset_path}")
         return
 
     # Open server log files
-    stdout_path = LOGS_DIR / f"fragmentation-{now_repr}.stdout.log"
-    stderr_path = LOGS_DIR / f"fragmentation-{now_repr}.stderr.log"
+    stdout_path = LOGS_DIR / f"{args_repr}.stdout.log"
+    stderr_path = LOGS_DIR / f"{args_repr}.stderr.log"
     fout = stdout_path.open("w", encoding="utf-8")
     ferr = stderr_path.open("w", encoding="utf-8")
 
+    # Determine server options
+    server_options = [
+        "--sparse-kv-cache-method",
+        args.sparse_kv_cache_method,
+        "--sparse-kv-cache-budget",
+        str(args.sparse_kv_cache_budget),
+        "--sparse-kv-cache-num-per-evict",
+        str(args.sparse_kv_cache_num_per_evict),
+    ]
+
     # Start the server in the backend and redirect stdout and stderr to files
+    print()
     print("\033[90mStarting up server...\033[0m")
     server_proc = subprocess.Popen(
-        ["vllm", "serve", model_name, "--enforce-eager"],
+        ["vllm", "serve", args.model, "--enforce-eager", *server_options],
         cwd=ROOT_DIR,
         env={
             **os.environ, "VLLM_LOGGING_LEVEL": "ERROR",
@@ -72,7 +83,7 @@ def main():
     result = subprocess.run(
         [
             "python", "benchmarks/benchmark_serving.py", "--backend", "vllm",
-            "--model", model_name, "--dataset-name", "sharegpt",
+            "--model", args.model, "--dataset-name", "sharegpt",
             "--dataset-path", dataset_path, "--request-rate", "10",
             "--num-prompts", "1000"
         ],
@@ -98,10 +109,39 @@ def main():
         ],
         cwd=ROOT_DIR,
         env=os.environ,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0
-    print(f"\033[32;1mTimestamp of logs and results: {now_repr}\033[0m")
+
+    print(f"Stdout: \033[90m{stdout_path}\033[0m")
+    print(f"Stderr: \033[90m{stderr_path}\033[0m")
+    print(f"Result: \033[90m{result.stdout}\033[0m")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+
+    # Experiment setup arguments
+    parser.add_argument("--model", type=str, default="facebook/opt-125m")
+    parser.add_argument(
+        "--dataset-path",
+        type=str,
+        default="ShareGPT_V3_unfiltered_cleaned_split.json",
+        help="The dataset path relative to the benchmarks directory.")
+
+    # KV cache sparsification arguments
+    # NOTE(Charlie-XIAO): Set --sparse-kv-cache-budget to max for experimenting
+    # with no KV cache eviction. This is because --sparse-kv-cache-method=None
+    # will not log the fragmentation information (so it is not allowed here).
+    parser.add_argument("--sparse-kv-cache-method",
+                        type=str,
+                        choices=["random", "h2o"],
+                        default="h2o")
+    parser.add_argument("--sparse-kv-cache-budget",
+                        type=lambda val: int(val) if val != "max" else "max",
+                        default="max")
+    parser.add_argument("--sparse-kv-cache-num-per-evict", type=int, default=1)
+
+    args = parser.parse_args()
+    main(args)

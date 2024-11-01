@@ -215,9 +215,8 @@ class CPUExecutor(ExecutorBase):
                           num_gpu_blocks=num_gpu_blocks,
                           num_cpu_blocks=num_cpu_blocks)
 
-    def execute_model(
-            self,
-            execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    def execute_model(self, execute_model_req: ExecuteModelRequest,
+                      record_attn_scores: bool) -> List[SamplerOutput]:
         if (self.parallel_config.tensor_parallel_size > 1
                 and self.parallel_worker_tasks is None):
             self.parallel_worker_tasks = self._run_workers(

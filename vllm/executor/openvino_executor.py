@@ -74,9 +74,8 @@ class OpenVINOExecutor(ExecutorBase):
         logger.info("# CPU blocks: %d", num_gpu_blocks)
         self.driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
 
-    def execute_model(
-            self,
-            execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    def execute_model(self, execute_model_req: ExecuteModelRequest,
+                      record_attn_scores: bool) -> List[SamplerOutput]:
         output = self.driver_worker.execute_model(execute_model_req)
         return output
 

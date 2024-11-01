@@ -95,6 +95,7 @@ class TPUExecutor(ExecutorBase):
     def execute_model(
         self,
         execute_model_req: ExecuteModelRequest,
+        record_attn_scores: bool,
     ) -> List[SamplerOutput]:
         output = self.driver_worker.execute_model(execute_model_req)
         return output

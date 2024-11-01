@@ -16,6 +16,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 def main(args):
     assert args.log_file.endswith(".stdout.log")
+    result_path = RESULTS_DIR / f"{args.log_file[:-11]}.png"
 
     num_active_arr, num_total_arr = [], []
     with (LOGS_DIR / args.log_file).open("r", encoding="utf-8") as f:
@@ -31,7 +32,9 @@ def main(args):
     plt.plot(frag_prop_arr[100:])
     plt.gca().yaxis.set_major_formatter(PercentFormatter(xmax=1))
     plt.grid()
-    plt.savefig(RESULTS_DIR / f"{args.log_file[:-11]}.png")
+    plt.savefig(result_path)
+
+    print(result_path)
 
 
 if __name__ == "__main__":

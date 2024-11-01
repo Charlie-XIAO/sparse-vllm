@@ -22,12 +22,12 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
          num_active_slots) = self._get_blocks_info(block_manager, seq_id,
                                                    num_slots)
 
-        if num_active_slots <= self.num_tokens_budget:
+        if num_active_slots <= self.budget:
             # We have not exceeded the budget so no need for eviction
             return (False, num_active_slots, num_total_slots)
 
         slots_to_evict = np.random.choice(active_slots,
-                                          self.num_tokens_per_eviction,
+                                          self.num_per_evict,
                                           replace=False)
         block_manager.deactivate_slots(seq_id, slots_to_evict)
 

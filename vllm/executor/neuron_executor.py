@@ -52,9 +52,8 @@ class NeuronExecutor(ExecutorBase):
         """
         self.driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
 
-    def execute_model(
-            self,
-            execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    def execute_model(self, execute_model_req: ExecuteModelRequest,
+                      record_attn_scores: bool) -> List[SamplerOutput]:
         assert (not execute_model_req.blocks_to_swap_in
                 and not execute_model_req.blocks_to_swap_out
                 and not execute_model_req.blocks_to_copy), (
