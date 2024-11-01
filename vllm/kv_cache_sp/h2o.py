@@ -26,21 +26,20 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
              attn_scores: torch.Tensor) -> None:
         agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
         num_slots = len(agg_attn_scores)
+        (total_block_mask, active_slots, num_total_slots,
+         num_active_slots) = self._get_blocks_info(block_manager, seq_id,
+                                                   num_slots)
 
+        # Accumulate the attention scores
         if seq_id in self.seq_ids_to_cum_attn_scores:
             self.seq_ids_to_cum_attn_scores[seq_id].resize(num_slots)
             self.seq_ids_to_cum_attn_scores[seq_id] += agg_attn_scores
         else:
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
 
-        mask = np.concatenate(
-            block_manager.block_tables[seq_id].masks())[:num_slots]
-        active_slots = np.where(mask)[0]
-        num_active_slots = len(active_slots)
-
         if num_active_slots <= self.num_tokens_budget:
             # We have not exceeded the budget so no need for eviction
-            return
+            return (False, num_active_slots, num_total_slots)
 
         # We should keep the k last tokens and the k tokens from the rest with
         # the highest attention scores
@@ -67,19 +66,13 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         evict_mask = np.ones(num_slots, dtype=np.bool_)
         evict_mask[topk_slots] = False
         evict_mask[active_slots[-k_last:]] = False
-        slots_to_evict = np.where(evict_mask & mask)[0]
+        slots_to_evict = np.where(evict_mask & total_block_mask)[0]
 
         block_manager.deactivate_slots(seq_id, slots_to_evict)
-        # TODO(Charlie-XIAO): Remove print
-        print(f"Sequence {seq_id}: Evicted slots {slots_to_evict.tolist()}")
+
+        return (True, num_active_slots, num_total_slots)
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         for output in outputs:
             for seq_id in output.seq_ids:
                 self.seq_ids_to_cum_attn_scores.pop(seq_id, None)
-
-        # TODO(Charlie-XIAO): Remove print
-        print("\n----\n")
-        for seq_id, cum_attn_scores in self.seq_ids_to_cum_attn_scores.items():
-            print(f"Sequence {seq_id}: {cum_attn_scores}")
-        print("\n----------------------------------------------------------\n")

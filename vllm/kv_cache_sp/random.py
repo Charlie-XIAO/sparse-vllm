@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -16,21 +16,22 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
     """
 
     def step(self, block_manager: BlockSpaceManagerV1, seq_id: int,
-             attn_scores: torch.Tensor) -> None:
+             attn_scores: torch.Tensor) -> Tuple[bool, int, int]:
         num_slots = attn_scores.size(2)
-        mask = np.concatenate(
-            block_manager.block_tables[seq_id].masks())[:num_slots]
-        active_slots = np.where(mask)[0]
-        num_active_slots = len(active_slots)
+        (_, active_slots, num_total_slots,
+         num_active_slots) = self._get_blocks_info(block_manager, seq_id,
+                                                   num_slots)
 
         if num_active_slots <= self.num_tokens_budget:
             # We have not exceeded the budget so no need for eviction
-            return
+            return (False, num_active_slots, num_total_slots)
 
         slots_to_evict = np.random.choice(active_slots,
                                           self.num_tokens_per_eviction,
                                           replace=False)
         block_manager.deactivate_slots(seq_id, slots_to_evict)
+
+        return (True, num_active_slots, num_total_slots)
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         pass  # No-op

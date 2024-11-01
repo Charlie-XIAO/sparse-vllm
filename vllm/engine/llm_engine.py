@@ -468,7 +468,7 @@ class LLMEngine:
         # TODO(Charlie-XIAO): This should be optional and dependent
         kv_cache_sparsifier_cls = get_kv_cache_sparsifier("h2o")
         self.kv_cache_sparsifier = kv_cache_sparsifier_cls(
-            num_tokens_budget=20,
+            num_tokens_budget=1024,
             num_tokens_per_eviction=1,
         )
 
@@ -1272,6 +1272,8 @@ class LLMEngine:
             outputs = self.model_executor.execute_model(
                 execute_model_req=execute_model_req)
 
+            stat_num_active_slots = 0
+            stat_num_total_slots = 0
             for output in outputs:
                 if output.seq_ids_to_attn_scores is None:
                     continue
@@ -1280,9 +1282,17 @@ class LLMEngine:
 
                 for seq_id, attn_scores in output.seq_ids_to_attn_scores.items(
                 ):
-                    self.kv_cache_sparsifier.step(
-                        self.scheduler[virtual_engine].block_manager, seq_id,
-                        attn_scores)
+                    (_, num_active_slots,
+                     num_total_slots) = self.kv_cache_sparsifier.step(
+                         self.scheduler[virtual_engine].block_manager, seq_id,
+                         attn_scores)
+                    stat_num_active_slots += num_active_slots
+                    stat_num_total_slots += num_total_slots
+
+            if envs.VLLM_CS243_PRINT_FRAGMENTATION and stat_num_total_slots > 0:
+                print(
+                    f"#CS243#,{stat_num_active_slots},{stat_num_total_slots}\n",
+                    end="")
 
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.

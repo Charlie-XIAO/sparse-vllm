@@ -199,3 +199,5 @@ hip_compat.h
 
 # Benchmark dataset
 benchmarks/*.json
+cs243/*.json
+cs243/results/

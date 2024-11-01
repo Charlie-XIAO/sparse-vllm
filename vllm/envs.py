@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     VLLM_USE_TRITON_AWQ: bool = False
     VLLM_ALLOW_RUNTIME_LORA_UPDATING: bool = False
     VLLM_ALLOW_DEPRECATED_BEAM_SEARCH: bool = False
+    VLLM_CS243_PRINT_FRAGMENTATION: bool = False
 
 
 def get_default_cache_root():
@@ -423,6 +424,11 @@ environment_variables: Dict[str, Callable[[], Any]] = {
     lambda:
     (os.environ.get("VLLM_ALLOW_RUNTIME_LORA_UPDATING", "0").strip().lower() in
      ("1", "true")),
+
+    # [CS243] Whether to print out information needed for the fragmentation
+    # experiments
+    "VLLM_CS243_PRINT_FRAGMENTATION":
+    lambda: bool(int(os.getenv("VLLM_CS243_PRINT_FRAGMENTATION", "0"))),
 }
 
 # end-env-vars-definition
