@@ -99,10 +99,16 @@ class OPTAttention(nn.Module):
         hidden_states: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
+        attn_scores: Optional[torch.Tensor],
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.chunk(chunks=3, dim=-1)
-        attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        attn_output = self.attn(q,
+                                k,
+                                v,
+                                kv_cache,
+                                attn_metadata,
+                                attn_scores=attn_scores)
         output, _ = self.out_proj(attn_output)
         return output
 
@@ -153,6 +159,7 @@ class OPTDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
+        attn_scores: Optional[torch.Tensor],
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -161,7 +168,8 @@ class OPTDecoderLayer(nn.Module):
             hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states = self.self_attn(hidden_states=hidden_states,
                                        kv_cache=kv_cache,
-                                       attn_metadata=attn_metadata)
+                                       attn_metadata=attn_metadata,
+                                       attn_scores=attn_scores)
         hidden_states = residual + hidden_states
         # 350m applies layer norm AFTER attention
         if not self.do_layer_norm_before:
@@ -247,6 +255,7 @@ class OPTDecoder(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         inputs_embeds: Optional[torch.Tensor] = None,
+        all_attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings(input_ids)
@@ -257,7 +266,12 @@ class OPTDecoder(nn.Module):
 
         for i in range(len(self.layers)):
             layer = self.layers[i]
-            hidden_states = layer(hidden_states, kv_caches[i], attn_metadata)
+            attn_scores = all_attn_scores[
+                i] if all_attn_scores is not None else None
+            hidden_states = layer(hidden_states,
+                                  kv_caches[i],
+                                  attn_metadata,
+                                  attn_scores=attn_scores)
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)
@@ -287,12 +301,14 @@ class OPTModel(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         inputs_embeds: Optional[torch.Tensor] = None,
+        all_attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         return self.decoder(input_ids,
                             positions,
                             kv_caches,
                             attn_metadata,
-                            inputs_embeds=inputs_embeds)
+                            inputs_embeds=inputs_embeds,
+                            all_attn_scores=all_attn_scores)
 
 
 class OPTForCausalLM(nn.Module):
@@ -314,6 +330,7 @@ class OPTForCausalLM(nn.Module):
                                           config.word_embed_proj_dim)
         self.logits_processor = LogitsProcessor(config.vocab_size)
         self.sampler = Sampler()
+        self.all_attn_scores: Optional[torch.Tensor] = None
 
     def forward(
         self,
@@ -322,9 +339,38 @@ class OPTForCausalLM(nn.Module):
         kv_caches: List[torch.Tensor],
         attn_metadata: AttentionMetadata,
         intermediate_tensors: Optional[IntermediateTensors] = None,
+        record_attn_scores: bool = False,
     ) -> torch.Tensor:
-        hidden_states = self.model(input_ids, positions, kv_caches,
-                                   attn_metadata)
+        print(input_ids)
+        print(positions)
+        print("---")
+        if record_attn_scores:
+            # Number of slots, which is the second dimension of the block masks,
+            # equal to block size times the maximum number of blocks among the
+            # sequences to process; this would be the third dimension of the
+            # attention scores per layer
+            num_slots = 0
+            if decode_meta := attn_metadata.decode_metadata:
+                num_slots = decode_meta.block_masks.size(1)
+            elif prefill_meta := attn_metadata.prefill_metadata:
+                num_slots = prefill_meta.block_masks.size(1)
+
+            # The first dimension is the number of layers, and the rest of the
+            # dimensions would be the per-layer attention scores to be written
+            # by the attention kernel
+            self.all_attn_scores = torch.zeros(
+                self.config.num_hidden_layers,
+                input_ids.size(0),  # num_seqs
+                self.config.num_attention_heads,
+                num_slots,
+                dtype=torch.float32,
+                device=input_ids.device)
+
+        hidden_states = self.model(input_ids,
+                                   positions,
+                                   kv_caches,
+                                   attn_metadata,
+                                   all_attn_scores=self.all_attn_scores)
         return hidden_states
 
     def compute_logits(

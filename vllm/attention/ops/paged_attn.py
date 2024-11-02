@@ -28,6 +28,15 @@ class PagedAttentionMetadata:
     # 2nd dimensions are padded up to max_blocks_per_seq if it is cuda-graph
     # captured.
     block_tables: Optional[torch.Tensor]
+    # (batch_size, block_size * max_blocks_per_seq).
+    # Block masks per sequence. (Seq id -> masks of the physical blocks)
+    # E.g., use the example of block_tables=[0, 1, 2] above and block_size=8,
+    # then each block mask would be of length 3*8=24, with first 8 entries
+    # marking the 8 slots of block 0, next 8 entries marking the 8 slots of
+    # block 1, and last 8 entries marking the 8 slots of block 2. Same as above,
+    # 2nd dimensions are padded up to block_size * max_blocks_per_seq if it is
+    # cuda-graph captured.
+    block_masks: Optional[torch.Tensor]
 
 
 class PagedAttention:
@@ -89,6 +98,7 @@ class PagedAttention:
         key_cache: torch.Tensor,
         value_cache: torch.Tensor,
         block_tables: torch.Tensor,
+        block_masks: torch.Tensor,
         seq_lens: torch.Tensor,
         max_seq_len: int,
         kv_cache_dtype: str,
@@ -102,6 +112,7 @@ class PagedAttention:
         blocksparse_vert_stride: int = 0,
         blocksparse_block_size: int = 64,
         blocksparse_head_sliding_step: int = 0,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if blocksparse_vert_stride is not None and blocksparse_vert_stride > 1:
             # use blocksparse paged attention
@@ -126,16 +137,24 @@ class PagedAttention:
         use_v1 = (max_seq_len <= 8192
                   and (max_num_partitions == 1 or num_seqs * num_heads > 512))
 
+        # The PagedAttention kernel needs the tensor to be mutable so it cannot
+        # be wrapped as optional (otherwise it is non-const l-value reference);
+        # hence we pass an empty tensor instead
+        if attn_scores is None:
+            attn_scores = torch.zeros(0, device=output.device)
+
         if use_v1:
             # Run PagedAttention V1.
             ops.paged_attention_v1(
                 output,
+                attn_scores,
                 query,
                 key_cache,
                 value_cache,
                 num_kv_heads,
                 scale,
                 block_tables,
+                block_masks,
                 seq_lens,
                 block_size,
                 max_seq_len,
@@ -167,6 +186,7 @@ class PagedAttention:
                 output,
                 exp_sums,
                 max_logits,
+                attn_scores,
                 tmp_output,
                 query,
                 key_cache,
@@ -174,6 +194,7 @@ class PagedAttention:
                 num_kv_heads,
                 scale,
                 block_tables,
+                block_masks,
                 seq_lens,
                 block_size,
                 max_seq_len,

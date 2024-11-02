@@ -7,6 +7,8 @@ from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
 from typing import Set, Tuple
 
+import numpy as np
+
 from vllm.block import BlockTable, PhysicalTokenBlock
 from vllm.core.block.common import CacheMetricData
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
@@ -659,6 +661,9 @@ class BlockSpaceManagerV1(BlockSpaceManager):
     def get_block_table(self, seq: Sequence) -> List[int]:
         return self.block_tables[seq.seq_id].ids()
 
+    def get_block_mask(self, seq: Sequence) -> List[np.ndarray]:
+        return self.block_tables[seq.seq_id].masks()
+
     def get_cross_block_table(self, seq_group: SequenceGroup) -> List[int]:
         block_table = self.cross_block_tables[seq_group.request_id]
         return [block.block_number for block in block_table]
@@ -736,3 +741,30 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         if device == Device.CPU:
             return self.cpu_allocator.get_prefix_cache_hit_rate()
         raise ValueError(f"Invalid device: {device}")
+
+    def deactivate_slots(self, seq_id: int, slots: List[int]) -> None:
+        self.block_tables[seq_id].deactivate_slots(slots)
+
+    def activate_slots(self, seq_id: int, slots: List[int]) -> None:
+        self.block_tables[seq_id].activate_slots(slots)
+
+    def free_fully_deactivated_blocks(self, seq_id: int) -> Set[int]:
+        """
+        Check for fully deactivate blocks, free them, remove them from the block
+        table, and return the set of indices of the removed blocks.
+        """
+        block_table = self.block_tables[seq_id]
+        blocks_to_remove = set()
+        for i, mask in enumerate(block_table.masks()):
+            if not mask.any():
+                if block_table[i].device == Device.GPU:
+                    self.gpu_allocator.free(block_table[i])
+                else:  # Device.CPU
+                    self.cpu_allocator.free(block_table[i])
+                blocks_to_remove.add(i)
+
+        # Update the block table
+        if blocks_to_remove:
+            block_table.remove_blocks(blocks_to_remove)
+
+        return blocks_to_remove

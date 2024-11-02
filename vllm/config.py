@@ -613,6 +613,10 @@ class CacheConfig:
         sliding_window: Optional[int] = None,
         enable_prefix_caching: bool = False,
         cpu_offload_gb: float = 0,
+        sparse_kv_cache_method: Optional[str] = None,
+        sparse_kv_cache_budget: int = 2048,
+        sparse_kv_cache_num_per_evict: int = 1,
+        sparse_kv_cache_internal: str = "spvllm",
     ) -> None:
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -622,9 +626,14 @@ class CacheConfig:
         self.sliding_window = sliding_window
         self.enable_prefix_caching = enable_prefix_caching
         self.cpu_offload_gb = cpu_offload_gb
+        self.sparse_kv_cache_method = sparse_kv_cache_method
+        self.sparse_kv_cache_budget = sparse_kv_cache_budget
+        self.sparse_kv_cache_num_per_evict = sparse_kv_cache_num_per_evict
+        self.sparse_kv_cache_internal = sparse_kv_cache_internal
         self._verify_args()
         self._verify_cache_dtype()
         self._verify_prefix_caching()
+        self._verify_sparse_kv_cache()
 
         # Will be set after profiling.
         self.num_gpu_blocks = None
@@ -661,6 +670,23 @@ class CacheConfig:
             raise NotImplementedError(
                 "Prefix caching is not supported with sliding window. "
                 "Run with --disable-sliding-window to use prefix caching.")
+
+    def _verify_sparse_kv_cache(self) -> None:
+        if self.sparse_kv_cache_method not in (None, "random", "h2o"):
+            raise ValueError("Unknown KV cache sparsification method: "
+                             f"{self.sparse_kv_cache_method}")
+
+        if self.sparse_kv_cache_num_per_evict >= self.sparse_kv_cache_budget:
+            raise ValueError(
+                "Number of tokens per eviction "
+                f"(={self.sparse_kv_cache_num_per_evict}) must be strictly "
+                "less than the KV cache budget "
+                f"(={self.sparse_kv_cache_budget})")
+
+        if self.sparse_kv_cache_internal not in ("no-op", "free-block", "copy",
+                                                 "spvllm"):
+            raise ValueError("Unknown KV cache internal memory management "
+                             f"strategy: {self.sparse_kv_cache_internal}")
 
     def verify_with_parallel_config(
         self,

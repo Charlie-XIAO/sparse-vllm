@@ -202,6 +202,8 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
                                self.context_lens_tensor[:self.num_prefills])
         block_tables = (None if self.block_tables is None else
                         self.block_tables[:self.num_prefills])
+        block_masks = (None if self.block_masks is None else
+                       self.block_masks[:self.num_prefills])
 
         # Construct & cache prefill-phase attention metadata structure
         self._cached_prefill_metadata = XFormersMetadata(
@@ -217,6 +219,7 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
             query_start_loc=query_start_loc,
             context_lens_tensor=context_lens_tensor,
             block_tables=block_tables,
+            block_masks=block_masks,
             use_cuda_graph=False,
             # Begin encoder & cross attn fields below...
             encoder_seq_lens=self.encoder_seq_lens,
@@ -245,6 +248,8 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
                            self.seq_lens_tensor[self.num_prefills:])
         block_tables = (None if self.block_tables is None else
                         self.block_tables[self.num_prefills:])
+        block_masks = (None if self.block_masks is None else
+                       self.block_masks[self.num_prefills:])
 
         # Construct & cache decode-phase attention metadata structure
         self._cached_decode_metadata = XFormersMetadata(
@@ -256,6 +261,7 @@ class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):
             max_prefill_seq_len=0,
             max_decode_seq_len=self.max_decode_seq_len,
             block_tables=block_tables,
+            block_masks=block_masks,
             use_cuda_graph=self.use_cuda_graph,
             # Begin encoder & cross attn fields below...
             encoder_seq_lens=self.encoder_seq_lens,
@@ -347,6 +353,7 @@ def _get_seq_len_block_table_args(
     * Appropriate sequence-lengths tensor
     * Appropriate max sequence-length scalar
     * Appropriate block tables (or None)
+    * Appropriate block masks (or None)
     '''
 
     if attn_type == AttentionType.DECODER:
@@ -357,17 +364,17 @@ def _get_seq_len_block_table_args(
         else:
             max_seq_len = attn_metadata.max_decode_seq_len
         return (attn_metadata.seq_lens_tensor, max_seq_len,
-                attn_metadata.block_tables)
+                attn_metadata.block_tables, attn_metadata.block_masks)
     elif attn_type == AttentionType.ENCODER_DECODER:
         # Enc/dec cross-attention KVs match encoder sequence length;
         # cross-attention utilizes special "cross" block tables
         return (attn_metadata.encoder_seq_lens_tensor,
                 attn_metadata.max_encoder_seq_len,
-                attn_metadata.cross_block_tables)
+                attn_metadata.cross_block_tables, None)
     elif attn_type == AttentionType.ENCODER:
         # No block tables associated with encoder attention
         return (attn_metadata.encoder_seq_lens_tensor,
-                attn_metadata.max_encoder_seq_len, None)
+                attn_metadata.max_encoder_seq_len, None, None)
     else:
         raise AttributeError(f"Invalid attention type {str(attn_type)}")
 
@@ -450,6 +457,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: AttentionType = AttentionType.DECODER,
+        attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with xFormers and PagedAttention.
 
@@ -631,6 +639,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
                 seq_lens_arg,
                 max_seq_len_arg,
                 block_tables_arg,
+                block_masks_arg,
             ) = _get_seq_len_block_table_args(decode_meta, False, attn_type)
 
             output[num_prefill_tokens:] = PagedAttention.forward_decode(
@@ -638,6 +647,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
                 key_cache,
                 value_cache,
                 block_tables_arg,
+                block_masks_arg,
                 seq_lens_arg,
                 max_seq_len_arg,
                 self.kv_cache_dtype,
@@ -646,6 +656,7 @@ class XFormersImpl(AttentionImpl[XFormersMetadata]):
                 self.alibi_slopes,
                 k_scale,
                 v_scale,
+                attn_scores=attn_scores,
             )
 
         # Reshape the output tensor.

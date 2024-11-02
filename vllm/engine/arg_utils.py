@@ -1,6 +1,7 @@
 import argparse
 import dataclasses
 import json
+import sys
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple,
                     Type, Union)
@@ -35,6 +36,12 @@ DEVICE_OPTIONS = [
     "tpu",
     "xpu",
 ]
+
+
+def int_or_max(val: str):
+    if val == "max":
+        return sys.maxsize
+    return int(val)
 
 
 def nullable_str(val: str):
@@ -177,6 +184,11 @@ class EngineArgs:
     disable_async_output_proc: bool = False
     override_neuron_config: Optional[Dict[str, Any]] = None
     mm_processor_kwargs: Optional[Dict[str, Any]] = None
+
+    sparse_kv_cache_method: Optional[str] = None
+    sparse_kv_cache_budget: int = 2048
+    sparse_kv_cache_num_per_evict: int = 1
+    sparse_kv_cache_internal: str = "spvllm"
 
     def __post_init__(self):
         if self.tokenizer is None:
@@ -797,6 +809,36 @@ class EngineArgs:
             default=None,
             help="override or set neuron device configuration.")
 
+        # KV cache sparsification
+        parser.add_argument(
+            "--sparse-kv-cache-method",
+            type=str,
+            choices=["random", "h2o"],
+            default=None,
+            help="KV cache sparsification method. If not specified, no KV "
+            "cache sparsification will be performed.")
+        parser.add_argument(
+            "--sparse-kv-cache-budget",
+            type=int_or_max,
+            default=2048,
+            help="The budget for KV cache sparsification. In particular, "
+            "KV cache eviction will be performed whenever its number of tokens "
+            "exceeds the budget. Ignored if --sparse-kv-cache-method is not "
+            "specified.")
+        parser.add_argument(
+            "--sparse-kv-cache-num-per-evict",
+            type=int,
+            default=1,
+            help="The number of tokens to evict when KV cache exceeds the "
+            "budget. Ignored if --sparse-kv-cache-method is not specified.")
+        parser.add_argument(
+            "--sparse-kv-cache-internal",
+            type=str,
+            choices=["no-op", "free-block", "copy", "spvllm"],
+            default="spvllm",
+            help="The internal block management mechanism used for KV cache "
+            "sparsification.")
+
         return parser
 
     @classmethod
@@ -890,6 +932,10 @@ class EngineArgs:
             sliding_window=model_config.get_sliding_window(),
             enable_prefix_caching=self.enable_prefix_caching,
             cpu_offload_gb=self.cpu_offload_gb,
+            sparse_kv_cache_method=self.sparse_kv_cache_method,
+            sparse_kv_cache_budget=self.sparse_kv_cache_budget,
+            sparse_kv_cache_num_per_evict=self.sparse_kv_cache_num_per_evict,
+            sparse_kv_cache_internal=self.sparse_kv_cache_internal,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

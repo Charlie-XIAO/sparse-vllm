@@ -73,12 +73,14 @@ def gelu_quick(out: torch.Tensor, x: torch.Tensor) -> None:
 # page attention ops
 def paged_attention_v1(
     out: torch.Tensor,
+    attn_scores: torch.Tensor,
     query: torch.Tensor,
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
     num_kv_heads: int,
     scale: float,
     block_tables: torch.Tensor,
+    block_masks: torch.Tensor,
     seq_lens: torch.Tensor,
     block_size: int,
     max_seq_len: int,
@@ -93,17 +95,18 @@ def paged_attention_v1(
     blocksparse_head_sliding_step: int = 0,
 ) -> None:
     torch.ops._C.paged_attention_v1(
-        out, query, key_cache, value_cache, num_kv_heads, scale, block_tables,
-        seq_lens, block_size, max_seq_len, alibi_slopes, kv_cache_dtype,
-        k_scale, v_scale, tp_rank, blocksparse_local_blocks,
-        blocksparse_vert_stride, blocksparse_block_size,
-        blocksparse_head_sliding_step)
+        out, attn_scores, query, key_cache, value_cache, num_kv_heads, scale,
+        block_tables, block_masks, seq_lens, block_size, max_seq_len,
+        alibi_slopes, kv_cache_dtype, k_scale, v_scale, tp_rank,
+        blocksparse_local_blocks, blocksparse_vert_stride,
+        blocksparse_block_size, blocksparse_head_sliding_step)
 
 
 def paged_attention_v2(
     out: torch.Tensor,
     exp_sum: torch.Tensor,
     max_logits: torch.Tensor,
+    attn_scores: torch.Tensor,
     tmp_out: torch.Tensor,
     query: torch.Tensor,
     key_cache: torch.Tensor,
@@ -111,6 +114,7 @@ def paged_attention_v2(
     num_kv_heads: int,
     scale: float,
     block_tables: torch.Tensor,
+    block_masks: torch.Tensor,
     seq_lens: torch.Tensor,
     block_size: int,
     max_seq_len: int,
@@ -124,11 +128,12 @@ def paged_attention_v2(
     blocksparse_block_size: int = 64,
     blocksparse_head_sliding_step: int = 0,
 ) -> None:
+    # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v2(
-        out, exp_sum, max_logits, tmp_out, query, key_cache, value_cache,
-        num_kv_heads, scale, block_tables, seq_lens, block_size, max_seq_len,
-        alibi_slopes, kv_cache_dtype, k_scale, v_scale, tp_rank,
-        blocksparse_local_blocks, blocksparse_vert_stride,
+        out, exp_sum, max_logits, attn_scores, tmp_out, query, key_cache,
+        value_cache, num_kv_heads, scale, block_tables, block_masks, seq_lens,
+        block_size, max_seq_len, alibi_slopes, kv_cache_dtype, k_scale,
+        v_scale, tp_rank, blocksparse_local_blocks, blocksparse_vert_stride,
         blocksparse_block_size, blocksparse_head_sliding_step)
 
 

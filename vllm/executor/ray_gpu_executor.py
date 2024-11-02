@@ -325,11 +325,10 @@ class RayGPUExecutor(DistributedGPUExecutor):
         return self.driver_worker.execute_method("execute_model",
                                                  execute_model_req)
 
-    def execute_model(
-            self,
-            execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    def execute_model(self, execute_model_req: ExecuteModelRequest,
+                      record_attn_scores: bool) -> List[SamplerOutput]:
         if not self.use_ray_spmd_worker:
-            return super().execute_model(execute_model_req)
+            return super().execute_model(execute_model_req, record_attn_scores)
 
         if self.forward_dag is None:
             self.forward_dag = self._compiled_ray_dag(enable_asyncio=False)

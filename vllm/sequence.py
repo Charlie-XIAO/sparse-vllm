@@ -11,6 +11,7 @@ from typing import Sequence as GenericSequence
 from typing import Set, Tuple, Union, cast
 
 import msgspec
+import numpy as np
 import torch
 
 from vllm.inputs import EncoderDecoderLLMInputs, LLMInputs
@@ -172,6 +173,13 @@ class SequenceData(msgspec.Struct,
     # It is used to compute mrope_position_ids.
     _mrope_position_delta: Optional[int] = None
 
+    # The length of the sequence is computed by the number of prompt tokens and
+    # the number of output tokens; this will be misaligned with the actual
+    # number of tokens that participate in computation if some block gets
+    # evicted by KV cache sparsification. This parameter is used to record how
+    # many tokens get evicted such that their whole block goes away.
+    _num_evicted_tokens: int = 0
+
     @staticmethod
     def from_token_counts(*token_counts: Tuple[int, int]) -> "SequenceData":
         if len(token_counts) == 0:
@@ -270,7 +278,8 @@ class SequenceData(msgspec.Struct,
         self._cumulative_logprob += logprob
 
     def get_len(self) -> int:
-        return len(self._output_token_ids) + len(self._prompt_token_ids)
+        return len(self._output_token_ids) + len(
+            self._prompt_token_ids) - self._num_evicted_tokens
 
     def get_prompt_len(self) -> int:
         return len(self._prompt_token_ids)
@@ -299,8 +308,10 @@ class SequenceData(msgspec.Struct,
     def update_num_computed_tokens(self, num_new_computed_tokens: int):
         """Update number of tokens computed so far."""
         self._num_computed_tokens += num_new_computed_tokens
-        assert self._num_computed_tokens <= self.get_len(), (
-            self._num_computed_tokens, self.get_len())
+        assert self._num_computed_tokens <= self.get_prompt_len(
+        ) + self.get_output_len(), (self._num_computed_tokens,
+                                    self.get_prompt_len() +
+                                    self.get_output_len())
         # If all tokens are computed, it means it is in decoding phase.
         if self.get_num_uncomputed_tokens() == 0:
             self._stage = SequenceStage.DECODE
@@ -316,10 +327,10 @@ class SequenceData(msgspec.Struct,
 
     def get_num_uncomputed_tokens(self) -> int:
         """Return the number of prefill tokens that are not computed."""
-        # we use `get_len()` which includes prompt_len + output_len instead
-        # of prompt_len here. This is because during recompute we need to
-        # prefill for both prompt and output.
-        return self.get_len() - self.get_num_computed_tokens()
+        # We use prompt_len + output_len instead of prompt_len here. This is
+        # because during recompute we need to prefill for both prompt and output
+        return self.get_prompt_len() + self.get_output_len(
+        ) - self.get_num_computed_tokens()
 
     def get_last_token_id(self) -> int:
         if not self._output_token_ids:
@@ -588,7 +599,7 @@ class Sequence:
         https://github.com/huggingface/transformers/blob/ccb92be23def445f2afdea94c31286f84b89eb5b/src/transformers/generation/beam_search.py#L938
         """
         if seq_len is None:
-            seq_len = self.get_len()
+            seq_len = self.get_prompt_len() + self.get_output_len()
             # NOTE: HF implementation does not count the EOS token
             # towards the length, we align with that here for testing.
             if (eos_token_id is not None
@@ -617,6 +628,9 @@ class Sequence:
 
     def is_prefill(self) -> bool:
         return self.data.stage == SequenceStage.PREFILL
+
+    def increment_num_evicted_tokens(self, num_evicted_tokens: int) -> None:
+        self.data._num_evicted_tokens += num_evicted_tokens
 
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "
@@ -940,6 +954,9 @@ class SequenceGroupMetadata(
         sampling_params: The sampling parameters used to generate the outputs.
         block_tables: The block tables. (Seq id -> list of physical block
             numbers)
+        block_masks: The block masks. (Seq id -> list of masks for physical
+            blocks; in particular, each physical block correspond to a boolean
+            mask that is 1 for active slots and 0 for inactive slots)
         do_sample: True if sampling is required. Sampling is not required when
             e.g., prefill is chunked, and the current iteration only computes
             query tokens for prefill, we don't need sampling.
@@ -967,6 +984,7 @@ class SequenceGroupMetadata(
     seq_data: Dict[int, SequenceData]
     sampling_params: Optional[SamplingParams]
     block_tables: Dict[int, List[int]]
+    block_masks: Dict[int, List[np.ndarray]]
     do_sample: bool = True
     pooling_params: Optional[PoolingParams] = None
     lora_request: Optional[LoRARequest] = None

@@ -117,6 +117,11 @@ class SamplerOutput(
     # block/sync across workers, cpu-gpu sync time and sampling time.
     model_execute_time: Optional[float] = None
 
+    # Mapping from sequence IDs to their corresponding attention score tensors.
+    # Each attention score is of shape (num_layers, num_heads, num_tokens), and
+    # we ensure that they are located on CPU
+    seq_ids_to_attn_scores: Optional[Dict[int, torch.Tensor]] = None
+
     def __getitem__(self, idx: int):
         return self.outputs[idx]
 
