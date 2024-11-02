@@ -188,6 +188,7 @@ class EngineArgs:
     sparse_kv_cache_method: Optional[str] = None
     sparse_kv_cache_budget: int = 2048
     sparse_kv_cache_num_per_evict: int = 1
+    sparse_kv_cache_internal: str = "spvllm"
 
     def __post_init__(self):
         if self.tokenizer is None:
@@ -830,6 +831,13 @@ class EngineArgs:
             default=1,
             help="The number of tokens to evict when KV cache exceeds the "
             "budget. Ignored if --sparse-kv-cache-method is not specified.")
+        parser.add_argument(
+            "--sparse-kv-cache-internal",
+            type=str,
+            choices=["no-op", "free-block", "copy", "spvllm"],
+            default="spvllm",
+            help="The internal block management mechanism used for KV cache "
+            "sparsification.")
 
         return parser
 
@@ -927,6 +935,7 @@ class EngineArgs:
             sparse_kv_cache_method=self.sparse_kv_cache_method,
             sparse_kv_cache_budget=self.sparse_kv_cache_budget,
             sparse_kv_cache_num_per_evict=self.sparse_kv_cache_num_per_evict,
+            sparse_kv_cache_internal=self.sparse_kv_cache_internal,
         )
         parallel_config = ParallelConfig(
             pipeline_parallel_size=self.pipeline_parallel_size,

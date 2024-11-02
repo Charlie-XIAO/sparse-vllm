@@ -17,8 +17,8 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
     https://proceedings.neurips.cc/paper_files/paper/2023/file/6ceefa7b15572587b78ecfcebb2827f8-Paper-Conference.pdf
     """
 
-    def __init__(self, budget: int, num_per_evict: int) -> None:
-        super().__init__(budget, num_per_evict)
+    def __init__(self, budget: int, num_per_evict: int, internal: str) -> None:
+        super().__init__(budget, num_per_evict, internal)
 
         self.seq_ids_to_cum_attn_scores: Dict[int, torch.Tensor] = {}
 
@@ -76,23 +76,41 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         evict_mask[active_slots[-k_last:]] = False
         slots_to_evict = np.where(evict_mask & total_block_mask)[0]
 
-        # Deactivate the slots, then free fully deactivated blocks and slice
-        # the attention scores accordingly
-        block_manager.deactivate_slots(seq_id, slots_to_evict)
-        removed_blocks = block_manager.free_fully_deactivated_blocks(seq_id)
-        for i in removed_blocks:
-            self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
-                self.seq_ids_to_cum_attn_scores[seq_id],
-                np.s_[i * block_size:(i + 1) * block_size])
+        num_removed_blocks = 0
 
-        # The block masks have been changed in the previous step; the stats need
-        # to be based on the updated version
-        block_masks = block_manager.block_tables[seq_id].masks()
+        if self.internal == "no-op":
+            block_manager.deactivate_slots(seq_id, slots_to_evict)
+
+        elif self.internal == "free-block":
+            block_manager.deactivate_slots(seq_id, slots_to_evict)
+            # Free fully deactivate blocks and slice the attention scores
+            # accordingly to keep consistency
+            removed_blocks = block_manager.free_fully_deactivated_blocks(
+                seq_id)
+            for i in removed_blocks:
+                self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
+                    self.seq_ids_to_cum_attn_scores[seq_id],
+                    np.s_[i * block_size:(i + 1) * block_size])
+            # Update for the returned step output
+            block_masks = block_manager.block_tables[seq_id].masks()
+            num_removed_blocks = len(removed_blocks)
+
+        elif self.internal == "copy":
+            raise NotImplementedError  # TODO(Charlie-XIAO)
+
+        elif self.internal == "spvllm":
+            raise NotImplementedError  # TODO(Charlie-XIAO)
+
+        else:
+            raise ValueError(
+                "Unrecognized KV cache internal memory management "
+                f"strategy: {self.internal}")
+
         return KVCacheSparsifierStepOutput(
             do_evict=True,
             num_active_slots=num_active_slots,
             num_total_slots=len(block_masks) * block_size,
-            num_removed_blocks=len(removed_blocks))
+            num_removed_blocks=num_removed_blocks)
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         for output in outputs:

@@ -26,13 +26,10 @@ class KVCacheSparsifierStepOutput:
 class KVCacheSparsifierBase(ABC):
     """Base class for KV cache sparsifiers."""
 
-    def __init__(self, budget: int, num_per_evict: int) -> None:
+    def __init__(self, budget: int, num_per_evict: int, internal: str) -> None:
         self.budget = budget
         self.num_per_evict = num_per_evict
-
-        if self.num_per_evict >= self.budget:
-            raise ValueError("The number of tokens per KV cache eviction must "
-                             "be strictly less than the KV cache budget")
+        self.internal = internal
 
     @abstractmethod
     def step(self, block_manager: BlockSpaceManagerV1, seq_id: int,

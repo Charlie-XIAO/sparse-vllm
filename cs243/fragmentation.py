@@ -22,7 +22,8 @@ def main(args):
     args_repr = ("fragmentation--"
                  f"{args.sparse_kv_cache_method}-"
                  f"{args.sparse_kv_cache_budget}-"
-                 f"{args.sparse_kv_cache_num_per_evict}")
+                 f"{args.sparse_kv_cache_num_per_evict}-"
+                 f"{args.sparse_kv_cache_internal}")
 
     # Make sure that the target dataset exists
     dataset_path = BENCH_DIR / args.dataset_path
@@ -44,6 +45,8 @@ def main(args):
         str(args.sparse_kv_cache_budget),
         "--sparse-kv-cache-num-per-evict",
         str(args.sparse_kv_cache_num_per_evict),
+        "--sparse-kv-cache-internal",
+        args.sparse_kv_cache_internal,
     ]
 
     # Start the server in the backend and redirect stdout and stderr to files
@@ -142,6 +145,10 @@ if __name__ == "__main__":
                         type=lambda val: int(val) if val != "max" else "max",
                         default="max")
     parser.add_argument("--sparse-kv-cache-num-per-evict", type=int, default=1)
+    parser.add_argument("--sparse-kv-cache-internal",
+                        type=str,
+                        choices=["no-op", "free-block", "copy", "spvllm"],
+                        default="spvllm")
 
     args = parser.parse_args()
     main(args)

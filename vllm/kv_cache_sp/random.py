@@ -40,14 +40,31 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
                                           self.num_per_evict,
                                           replace=False)
 
-        # Deactivate the slots, then free fully deactivated blocks and slice
-        # the attention scores accordingly
-        block_manager.deactivate_slots(seq_id, slots_to_evict)
-        removed_blocks = block_manager.free_fully_deactivated_blocks(seq_id)
-        for i in removed_blocks:
-            self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
-                self.seq_ids_to_cum_attn_scores[seq_id],
-                np.s_[i * block_size:(i + 1) * block_size])
+        num_removed_blocks = 0
+
+        if self.internal == "no-op":
+            block_manager.deactivate_slots(seq_id, slots_to_evict)
+
+        elif self.internal == "free-block":
+            block_manager.deactivate_slots(seq_id, slots_to_evict)
+            # Free fully deactivate blocks and slice the attention scores
+            # accordingly to keep consistency
+            removed_blocks = block_manager.free_fully_deactivated_blocks(
+                seq_id)
+            # Update for the returned step output
+            block_masks = block_manager.block_tables[seq_id].masks()
+            num_removed_blocks = len(removed_blocks)
+
+        elif self.internal == "copy":
+            raise NotImplementedError  # TODO(Charlie-XIAO)
+
+        elif self.internal == "spvllm":
+            raise NotImplementedError  # TODO(Charlie-XIAO)
+
+        else:
+            raise ValueError(
+                "Unrecognized KV cache internal memory management "
+                f"strategy: {self.internal}")
 
         # The block masks have been changed in the previous step; the stats need
         # to be based on the updated version
@@ -55,7 +72,7 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
             do_evict=True,
             num_active_slots=num_active_slots,
             num_total_slots=len(block_masks) * block_size,
-            num_removed_blocks=len(removed_blocks))
+            num_removed_blocks=num_removed_blocks)
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         pass  # No-op

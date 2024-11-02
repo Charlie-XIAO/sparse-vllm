@@ -242,7 +242,7 @@ class LLMEngine:
             "enable_prefix_caching=%s, use_async_output_proc=%s, "
             "use_cached_outputs=%s, mm_processor_kwargs=%s, "
             "sparse_kv_cache_method=%s, sparse_kv_cache_budget=%s, "
-            "sparse_kv_cache_num_per_evict=%s",
+            "sparse_kv_cache_num_per_evict=%s, sparse_kv_cache_internal=%s",
             VLLM_VERSION,
             model_config.model,
             speculative_config,
@@ -281,6 +281,7 @@ class LLMEngine:
             cache_config.sparse_kv_cache_method,
             cache_config.sparse_kv_cache_budget,
             cache_config.sparse_kv_cache_num_per_evict,
+            cache_config.sparse_kv_cache_internal,
         )
         # TODO(woosuk): Print more configs in debug mode.
         from vllm.plugins import load_general_plugins
@@ -477,6 +478,7 @@ class LLMEngine:
             self.kv_cache_sparsifier = kv_cache_sparsifier_cls(
                 budget=self.cache_config.sparse_kv_cache_budget,
                 num_per_evict=self.cache_config.sparse_kv_cache_num_per_evict,
+                internal=self.cache_config.sparse_kv_cache_internal,
             )
         else:
             self.kv_cache_sparsifier = None
