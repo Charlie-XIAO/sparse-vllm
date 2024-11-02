@@ -744,3 +744,27 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
     def deactivate_slots(self, seq_id: int, slots: List[int]) -> None:
         self.block_tables[seq_id].deactivate_slots(slots)
+
+    def activate_slots(self, seq_id: int, slots: List[int]) -> None:
+        self.block_tables[seq_id].activate_slots(slots)
+
+    def free_fully_deactivated_blocks(self, seq_id: int) -> Set[int]:
+        """
+        Check for fully deactivate blocks, free them, remove them from the block
+        table, and return the set of indices of the removed blocks.
+        """
+        block_table = self.block_tables[seq_id]
+        blocks_to_remove = set()
+        for i, mask in enumerate(block_table.masks()):
+            if not mask.any():
+                if block_table[i].device == Device.GPU:
+                    self.gpu_allocator.free(block_table[i])
+                else:  # Device.CPU
+                    self.cpu_allocator.free(block_table[i])
+                blocks_to_remove.add(i)
+
+        # Update the block table
+        if blocks_to_remove:
+            block_table.remove_blocks(blocks_to_remove)
+
+        return blocks_to_remove

@@ -29,7 +29,7 @@ def main(args):
     num_total_arr = np.asarray(num_total_arr)
 
     frag_prop_arr = 1 - num_active_arr / num_total_arr
-    plt.plot(frag_prop_arr[100:])
+    plt.plot(frag_prop_arr[500:-500])
     plt.gca().yaxis.set_major_formatter(PercentFormatter(xmax=1))
     plt.grid()
     plt.savefig(result_path)

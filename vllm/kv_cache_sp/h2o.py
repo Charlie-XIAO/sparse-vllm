@@ -4,7 +4,8 @@ import numpy as np
 import torch
 
 from vllm.core.block_manager_v1 import BlockSpaceManagerV1
-from vllm.kv_cache_sp.base import KVCacheSparsifierBase
+from vllm.kv_cache_sp.base import (KVCacheSparsifierBase,
+                                   KVCacheSparsifierStepOutput)
 from vllm.outputs import RequestOutput
 
 
@@ -22,23 +23,31 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         self.seq_ids_to_cum_attn_scores: Dict[int, torch.Tensor] = {}
 
     def step(self, block_manager: BlockSpaceManagerV1, seq_id: int,
-             attn_scores: torch.Tensor) -> None:
-        agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
-        num_slots = len(agg_attn_scores)
-        (total_block_mask, active_slots, num_total_slots,
-         num_active_slots) = self._get_blocks_info(block_manager, seq_id,
-                                                   num_slots)
+             attn_scores: torch.Tensor) -> KVCacheSparsifierStepOutput:
+        num_slots = attn_scores.size(2)
 
         # Accumulate the attention scores
+        agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
         if seq_id in self.seq_ids_to_cum_attn_scores:
             self.seq_ids_to_cum_attn_scores[seq_id].resize(num_slots)
             self.seq_ids_to_cum_attn_scores[seq_id] += agg_attn_scores
         else:
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
 
+        # Flatten block mask and get indices of active slots
+        block_masks = block_manager.block_tables[seq_id].masks()
+        block_size = len(block_masks[0])
+        total_block_mask = np.concatenate(block_masks)[:num_slots]
+        active_slots = np.where(total_block_mask)[0]
+        num_active_slots = len(active_slots)
+
         if num_active_slots <= self.budget:
             # We have not exceeded the budget so no need for eviction
-            return (False, num_active_slots, num_total_slots)
+            return KVCacheSparsifierStepOutput(
+                do_evict=False,
+                num_active_slots=num_active_slots,
+                num_total_slots=len(block_masks) * block_size,
+                num_removed_blocks=0)
 
         # We should keep the k last tokens and the k tokens from the rest with
         # the highest attention scores
@@ -67,9 +76,23 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         evict_mask[active_slots[-k_last:]] = False
         slots_to_evict = np.where(evict_mask & total_block_mask)[0]
 
+        # Deactivate the slots, then free fully deactivated blocks and slice
+        # the attention scores accordingly
         block_manager.deactivate_slots(seq_id, slots_to_evict)
+        removed_blocks = block_manager.free_fully_deactivated_blocks(seq_id)
+        for i in removed_blocks:
+            self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
+                self.seq_ids_to_cum_attn_scores[seq_id],
+                np.s_[i * block_size:(i + 1) * block_size])
 
-        return (True, num_active_slots, num_total_slots)
+        # The block masks have been changed in the previous step; the stats need
+        # to be based on the updated version
+        block_masks = block_manager.block_tables[seq_id].masks()
+        return KVCacheSparsifierStepOutput(
+            do_evict=True,
+            num_active_slots=num_active_slots,
+            num_total_slots=len(block_masks) * block_size,
+            num_removed_blocks=len(removed_blocks))
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         for output in outputs:

@@ -1282,31 +1282,14 @@ class LLMEngine:
                 execute_model_req=execute_model_req,
                 record_attn_scores=self.kv_cache_sparsifier is not None)
 
-            # Advance the KV cache sparsifier by one step if we have it
             if self.kv_cache_sparsifier is not None:
-                stat_num_active_slots = 0
-                stat_num_total_slots = 0
-                for output in outputs:
-                    if output.seq_ids_to_attn_scores is None:
-                        continue
-                    if self.scheduler_config.use_v2_block_manager:
-                        raise NotImplementedError  # TODO(Charlie-XIAO)
-
-                    for (seq_id,
-                         attn_scores) in output.seq_ids_to_attn_scores.items():
-                        (_, num_active_slots,
-                         num_total_slots) = self.kv_cache_sparsifier.step(
-                             self.scheduler[virtual_engine].block_manager,
-                             seq_id, attn_scores)
-                        stat_num_active_slots += num_active_slots
-                        stat_num_total_slots += num_total_slots
-
-                if (envs.VLLM_CS243_PRINT_FRAGMENTATION
-                        and stat_num_total_slots > 0):
-                    print(
-                        f"#CS243#,{stat_num_active_slots},"
-                        f"{stat_num_total_slots}\n",
-                        end="")
+                scheduled_seqs: Dict[int, Sequence] = {}
+                for (scheduled_seq_group
+                     ) in scheduler_outputs.scheduled_seq_groups:
+                    for seq in scheduled_seq_group.seq_group.seqs:
+                        scheduled_seqs[seq.seq_id] = seq
+                self._advance_kv_cache_sparsifier(virtual_engine, outputs,
+                                                  scheduled_seqs)
 
             # We need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
@@ -1813,3 +1796,31 @@ class LLMEngine:
             # TODO: Find out how many placeholder tokens are there so we can
             # check that chunked prefill does not truncate them
             # max_batch_len = self.scheduler_config.max_num_batched_tokens
+
+    def _advance_kv_cache_sparsifier(self, virtual_engine: int,
+                                     outputs: List[SamplerOutput],
+                                     scheduled_seqs: Dict[int, Sequence]):
+        stat_num_active_slots = 0
+        stat_num_total_slots = 0
+        for output in outputs:
+            if output.seq_ids_to_attn_scores is None:
+                continue
+            if self.scheduler_config.use_v2_block_manager:
+                raise NotImplementedError("KV cache sparsification not "
+                                          "supported for v2 block manager")
+
+            for seq_id, attn_scores in output.seq_ids_to_attn_scores.items():
+                sparsifier_output = self.kv_cache_sparsifier.step(
+                    self.scheduler[virtual_engine].block_manager, seq_id,
+                    attn_scores)
+                stat_num_active_slots += sparsifier_output.num_active_slots
+                stat_num_total_slots += sparsifier_output.num_total_slots
+
+                if seq_id in scheduled_seqs:
+                    scheduled_seqs[seq_id].increment_num_evicted_tokens(
+                        sparsifier_output.num_removed_blocks *
+                        self.cache_config.block_size)
+
+        if (envs.VLLM_CS243_PRINT_FRAGMENTATION and stat_num_total_slots > 0):
+            print(f"#CS243#,{stat_num_active_slots},{stat_num_total_slots}\n",
+                  end="")

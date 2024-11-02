@@ -1,5 +1,5 @@
 """Token blocks."""
-from typing import TYPE_CHECKING, Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterator, List, Optional, Set
 
 import numpy as np
 
@@ -104,10 +104,17 @@ class BlockTable:
     def masks(self) -> List[np.ndarray]:
         return self._block_masks
 
+    def remove_blocks(self, indices: Set[int]):
+        self._blocks = [
+            b for i, b in enumerate(self._blocks) if i not in indices
+        ]
+        self._block_ids = [b.block_number for b in self._blocks]
+        self._block_masks = [
+            mask for i, mask in enumerate(self._block_masks)
+            if i not in indices
+        ]
+
     def _set_slots_status(self, slots: List[int], status: bool):
-        # NOTE(Charlie-XIAO): This is assuming that the block sizes of all
-        # physical blocks in this block table are the same. This also assumes
-        # that the physical blocks are logically contiguous.
         block_size = self._blocks[0].block_size
         for slot in slots:
             i, j = divmod(slot, block_size)
