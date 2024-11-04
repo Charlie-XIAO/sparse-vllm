@@ -149,6 +149,130 @@ void copy_blocks(std::vector<torch::Tensor> const& key_caches,
 
 namespace vllm {
 
+// Grid: (num_layers, num_seqs, num_blocks * block_size)
+template <typename scalar_t>
+__global__ void migrate_blocks_kernel(
+    int64_t* key_cache_ptrs, int64_t* value_cache_ptrs,
+    const int64_t* __restrict__ block_mapping_src,  // [num_seqs, num_blocks]
+    const int64_t* __restrict__ block_mapping_dst,  // [num_seqs, num_blocks]
+    const int64_t* __restrict__ slot_mapping_src,   // [num_seqs, num_blocks *
+                                                    // block_size]
+    const int64_t* __restrict__ slot_mapping_dst,   // [num_seqs, num_blocks *
+                                                    // block_size]
+    const int head_dim, const int block_size) {
+  const int layer_idx = blockIdx.x;
+  const int seq_idx = blockIdx.y;
+  const int slot_idx = blockIdx.z;
+  const int num_slots = gridDim.z;  // = num_blocks * block_size
+
+  // Slot mappings are of shape (num_seqs, num_slots), we are essentually
+  // accessing the slot_mapping_src/dst[seq_idx, slot_idx]
+  const int selected_idx = seq_idx * num_slots + slot_idx;
+  const int64_t src_slot_idx = slot_mapping_src[selected_idx];
+  const int64_t dst_slot_idx = slot_mapping_dst[selected_idx];
+  if (src_slot_idx < 0 || dst_slot_idx < 0) {
+    return;  // -1 means that the corresponding slot should not be copied
+  }
+
+  scalar_t* key_cache = reinterpret_cast<scalar_t*>(key_cache_ptrs[layer_idx]);
+  scalar_t* value_cache =
+      reinterpret_cast<scalar_t*>(value_cache_ptrs[layer_idx]);
+
+  // src/dst_slot_idx is the slot index within the sequence; the quotient with
+  // block size would give the block index it falls into within the sequence,
+  // and the remainder is the offset within that block; the block index needs to
+  // be mapped to the physical block number, while the offset is the same
+  // logically and physically
+  const int64_t src_block_idx = block_mapping_src[src_slot_idx / block_size];
+  const int64_t src_block_offset = src_slot_idx % block_size;
+  const int64_t dst_block_idx = block_mapping_dst[dst_slot_idx / block_size];
+  const int64_t dst_block_offset = dst_slot_idx % block_size;
+
+  // Precompute the offsets outside the loop without considering the head_dim
+  // (i.e., num_heads * head_size) dimension
+  const int64_t src_general_offset =
+      src_block_idx * head_dim * block_size + src_block_offset;
+  const int64_t dst_general_offset =
+      dst_block_idx * head_dim * block_size + dst_block_offset;
+
+  // Copy the key and value caches; note that we are putting in two individual
+  // loops to mitigate potential memory coalescing
+  for (int i = threadIdx.x; i < head_dim; i += blockDim.x) {
+    const int64_t src_offset = src_general_offset + i * block_size;
+    const int64_t dst_offset = dst_general_offset + i * block_size;
+    key_cache[dst_offset] = key_cache[src_offset];
+  }
+  for (int i = threadIdx.x; i < head_dim; i += blockDim.x) {
+    const int64_t src_offset = src_general_offset + i * block_size;
+    const int64_t dst_offset = dst_general_offset + i * block_size;
+    value_cache[dst_offset] = value_cache[src_offset];
+  }
+}
+
+}  // namespace vllm
+
+void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
+                    std::vector<torch::Tensor> const& value_caches,
+                    const torch::Tensor& block_mapping_src,
+                    const torch::Tensor& block_mapping_dst,
+                    const torch::Tensor& slot_mapping_src,
+                    const torch::Tensor& slot_mapping_dst) {
+  const int num_layers = key_caches.size();
+  const int num_seqs = block_mapping_src.size(0);
+  const int num_blocks = block_mapping_src.size(1);
+  const int num_slots = slot_mapping_src.size(1);
+  if (num_layers == 0 || num_seqs == 0 || num_blocks == 0) {
+    return;
+  }
+  TORCH_CHECK(num_layers == value_caches.size());
+  TORCH_CHECK(num_seqs == block_mapping_dst.size(0));
+  TORCH_CHECK(num_seqs == slot_mapping_src.size(0));
+  TORCH_CHECK(num_seqs == slot_mapping_dst.size(0));
+  TORCH_CHECK(num_blocks == block_mapping_dst.size(1));
+  TORCH_CHECK(num_slots == slot_mapping_dst.size(1));
+  torch::Device cache_device = key_caches[0].device();
+  TORCH_CHECK(cache_device.is_cuda());
+
+  // Construct the arrays of pointers to the key and value caches
+  int64_t key_cache_ptrs[num_layers];
+  int64_t value_cache_ptrs[num_layers];
+  for (int layer_idx = 0; layer_idx < num_layers; layer_idx++) {
+    key_cache_ptrs[layer_idx] =
+        reinterpret_cast<int64_t>(key_caches[layer_idx].data_ptr());
+    value_cache_ptrs[layer_idx] =
+        reinterpret_cast<int64_t>(value_caches[layer_idx].data_ptr());
+  }
+
+  // Move these data structures to the GPU; note that this synchronizes the CPU
+  // and the GPU
+  torch::Tensor key_cache_ptrs_tensor =
+      torch::from_blob(key_cache_ptrs, {num_layers}, torch::kInt64)
+          .to(cache_device);
+  torch::Tensor value_cache_ptrs_tensor =
+      torch::from_blob(value_cache_ptrs, {num_layers}, torch::kInt64)
+          .to(cache_device);
+
+  // Launch the kernel
+  const int block_size = num_slots / num_blocks;
+  const int head_dim = key_caches[0][0].numel() / block_size;
+  dim3 grid(num_layers, num_seqs, num_slots);
+  dim3 block(std::min(head_dim, 512));
+  const at::cuda::OptionalCUDAGuard device_guard(cache_device);
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  VLLM_DISPATCH_FLOATING_AND_BYTE_TYPES(
+      key_caches[0].scalar_type(), "migrate_blocks_kernel", ([&] {
+        vllm::migrate_blocks_kernel<scalar_t><<<grid, block, 0, stream>>>(
+            key_cache_ptrs_tensor.data_ptr<int64_t>(),
+            value_cache_ptrs_tensor.data_ptr<int64_t>(),
+            block_mapping_src.data_ptr<int64_t>(),
+            block_mapping_dst.data_ptr<int64_t>(),
+            slot_mapping_src.data_ptr<int64_t>(),
+            slot_mapping_dst.data_ptr<int64_t>(), head_dim, block_size);
+      }));
+}
+
+namespace vllm {
+
 template <typename scalar_t, typename cache_t, Fp8KVCacheDataType kv_dt>
 __global__ void reshape_and_cache_kernel(
     const scalar_t* __restrict__ key,    // [num_tokens, num_heads, head_size]

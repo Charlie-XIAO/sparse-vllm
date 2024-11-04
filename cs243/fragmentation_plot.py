@@ -33,6 +33,8 @@ def main(args):
     plt.bar(np.arange(len(frag_prop_arr)), frag_prop_arr)
     _, y_upper = plt.ylim()
     plt.ylim(0, y_upper)
+    plt.xlabel("Step Number")
+    plt.ylabel("Internal Fragmentation (%)")
     plt.gca().yaxis.set_major_formatter(PercentFormatter(xmax=1))
     plt.grid()
     plt.savefig(result_path)

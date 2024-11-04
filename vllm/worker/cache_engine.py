@@ -101,6 +101,11 @@ class CacheEngine:
     def copy(self, src_to_dsts: torch.Tensor) -> None:
         self.attn_backend.copy_blocks(self.gpu_cache, src_to_dsts)
 
+    def migrate(self, srcs_and_dsts_blocks: torch.Tensor,
+                srcs_and_dsts_slots: torch.Tensor) -> None:
+        self.attn_backend.migrate_blocks(self.gpu_cache, srcs_and_dsts_blocks,
+                                         srcs_and_dsts_slots)
+
     @staticmethod
     def get_cache_block_size(
         cache_config: CacheConfig,

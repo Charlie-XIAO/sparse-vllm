@@ -15,6 +15,16 @@ void copy_blocks(std::vector<torch::Tensor> const& key_caches,
                  std::vector<torch::Tensor> const& value_caches,
                  const torch::Tensor& block_mapping);
 
+// Note: the key_caches and value_caches vectors are constant bu
+// not the Tensors they contain. The vectors need to be const refs
+// in order to satisfy pytorch's C++ operator registration code.
+void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
+                    std::vector<torch::Tensor> const& value_caches,
+                    const torch::Tensor& block_mapping_src,
+                    const torch::Tensor& block_mapping_dst,
+                    const torch::Tensor& slot_mapping_src,
+                    const torch::Tensor& slot_mapping_dst);
+
 void reshape_and_cache(torch::Tensor& key, torch::Tensor& value,
                        torch::Tensor& key_cache, torch::Tensor& value_cache,
                        torch::Tensor& slot_mapping,

@@ -18,9 +18,17 @@ class KVCacheSparsifierStepOutput:
     num_active_slots: int
     num_total_slots: int
 
-    # The number of blocks that are removed by eviction. This happens when all
-    # slots in that block are deactivated.
-    num_removed_blocks: int
+    # The number of tokens that are evicted. This does not include slots that
+    # are masked, but that are actually removed from the physical block table
+    # layout.
+    num_evicted_tokens: int
+
+    # The number of blocks that we will migrate to, and the slots that should be
+    # copied during the migration. This happens when using the copy internal
+    # strategy, where all current blocks will be freed and new blocks will be
+    # used.
+    num_migrate_dst_blocks: int
+    slots_to_migrate: List[int]
 
 
 class KVCacheSparsifierBase(ABC):
@@ -50,7 +58,7 @@ class KVCacheSparsifierBase(ABC):
         attn_scores : torch.Tensor
             The attention scores of shape (num_layers, num_heads, num_tokens).
         """
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def clean_self(self, outputs: List[RequestOutput]) -> None:
@@ -67,4 +75,4 @@ class KVCacheSparsifierBase(ABC):
             The request outputs, which carry information about the requests that
             have been completed.
         """
-        pass
+        raise NotImplementedError

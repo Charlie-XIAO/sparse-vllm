@@ -9,6 +9,7 @@ from typing import (Callable, Deque, Dict, Iterable, List, Optional, Set,
 
 import numpy as np
 
+from vllm.block import PhysicalTokenBlock
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
@@ -128,6 +129,12 @@ class SchedulerOutputs:
     blocks_to_swap_out: List[Tuple[int, int]]
     # Blocks to copy. Source to dest block.
     blocks_to_copy: List[Tuple[int, int]]
+    # Blocks to migrate for KV cache sparsification. List of source blocks and
+    # list of destination blocks. Likely of different lengths.
+    blocks_to_migrate: List[Tuple[List[int], List[int]]]
+    # Slots to migrate for KV cache sparsification. List of slots that need to
+    # be copied during migration.
+    slots_to_migrate: List[List[int]]
     # Sequence groups that are going to be ignored.
     ignored_seq_groups: List[SequenceGroup]
     # The number of slots for lookahead decoding.
@@ -149,7 +156,8 @@ class SchedulerOutputs:
     def is_empty(self) -> bool:
         # NOTE: We do not consider the ignored sequence groups.
         return (not self.scheduled_seq_groups and not self.blocks_to_swap_in
-                and not self.blocks_to_swap_out and not self.blocks_to_copy)
+                and not self.blocks_to_swap_out and not self.blocks_to_copy
+                and not self.blocks_to_migrate and not self.slots_to_migrate)
 
     def _sort_by_lora_ids(self):
         self.scheduled_seq_groups = sorted(
@@ -193,6 +201,12 @@ class SchedulerRunningOutputs:
     blocks_to_swap_out: List[Tuple[int, int]]
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
+    # Blocks to migrate for KV cache sparsification. List of source blocks and
+    # list of destination blocks. Likely of different lengths.
+    blocks_to_migrate: List[Tuple[List[int], List[int]]]
+    # Slots to migrate for KV cache sparsification. List of slots that need to
+    # be copied during migration.
+    slots_to_migrate: List[List[int]]
     # The number of slots for lookahead decoding.
     num_lookahead_slots: int
 
@@ -209,6 +223,8 @@ class SchedulerRunningOutputs:
             swapped_out=[],
             blocks_to_swap_out=[],
             blocks_to_copy=[],
+            blocks_to_migrate=[],
+            slots_to_migrate=[],
             num_lookahead_slots=0,
             decode_seq_groups_list=[],
             prefill_seq_groups_list=[],
@@ -231,6 +247,12 @@ class SchedulerSwappedInOutputs:
     blocks_to_swap_in: List[Tuple[int, int]]
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
+    # Blocks to migrate for KV cache sparsification. List of source blocks and
+    # list of destination blocks. Likely of different lengths.
+    blocks_to_migrate: List[Tuple[List[int], List[int]]]
+    # Slots to migrate for KV cache sparsification. List of slots that need to
+    # be copied during migration.
+    slots_to_migrate: List[List[int]]
     # The number of slots for lookahead decoding.
     num_lookahead_slots: int
     # Infeasible sequence groups.
@@ -243,6 +265,8 @@ class SchedulerSwappedInOutputs:
             prefill_seq_groups=[],
             blocks_to_swap_in=[],
             blocks_to_copy=[],
+            blocks_to_migrate=[],
+            slots_to_migrate=[],
             num_lookahead_slots=0,
             infeasible_seq_groups=[],
         )
@@ -286,6 +310,8 @@ def scheduler_running_outputs_builder():
                                    swapped_out=[],
                                    blocks_to_swap_out=[],
                                    blocks_to_copy=[],
+                                   blocks_to_migrate=[],
+                                   slots_to_migrate=[],
                                    num_lookahead_slots=0,
                                    prefill_seq_groups_list=[],
                                    decode_seq_groups_list=[])
@@ -497,7 +523,7 @@ class Scheduler:
         budget: SchedulingBudget,
         curr_loras: Optional[Set[int]],
         enable_chunking: bool = False,
-    ) -> SchedulerRunningOutputs:
+    ) -> Tuple[SchedulerRunningOutputs, List[PhysicalTokenBlock]]:
         """Schedule sequence groups that are running.
 
         Running queue should include decode and chunked prefill requests.
@@ -513,12 +539,14 @@ class Scheduler:
                 all tokens.
     
         Returns:
-            SchedulerRunningOutputs.
+            SchedulerRunningOutputs, List[PhysicalTokenBlock] (blocks to free)
         """
         ret: SchedulerRunningOutputs = \
             self._scheduler_running_outputs_cache[self.cache_id].get_object()
         ret.blocks_to_swap_out.clear()
         ret.blocks_to_copy.clear()
+        ret.blocks_to_migrate.clear()
+        ret.slots_to_migrate.clear()
         ret.decode_seq_groups.clear()
         ret.prefill_seq_groups.clear()
         ret.preempted.clear()
@@ -533,6 +561,10 @@ class Scheduler:
         # Blocks that need to be swapped or copied before model execution.
         blocks_to_swap_out: List[Tuple[int, int]] = ret.blocks_to_swap_out
         blocks_to_copy: List[Tuple[int, int]] = ret.blocks_to_copy
+        blocks_to_migrate: List[Tuple[List[int],
+                                      List[int]]] = ret.blocks_to_migrate
+        slots_to_migrate: List[List[int]] = ret.slots_to_migrate
+        blocks_to_free: List[PhysicalTokenBlock] = []
 
         decode_seq_groups: List[ScheduledSequenceGroup] = ret.decode_seq_groups
         prefill_seq_groups: List[
@@ -614,7 +646,9 @@ class Scheduler:
                 if not cont_loop:
                     break
             else:
-                self._append_slots(seq_group, blocks_to_copy)
+                self._append_slots(seq_group, blocks_to_copy,
+                                   blocks_to_migrate, slots_to_migrate,
+                                   blocks_to_free)
                 is_prefill = seq_group.is_prefill()
 
                 scheduled_seq_group: ScheduledSequenceGroup = \
@@ -644,14 +678,14 @@ class Scheduler:
         self._scheduler_running_outputs_cache[self.next_cache_id].reset()
         self._scheduled_seq_group_cache[self.next_cache_id].reset()
 
-        return ret
+        return ret, blocks_to_free
 
     def _schedule_swapped(
         self,
         budget: SchedulingBudget,
         curr_loras: Optional[Set[int]],
         enable_chunking: bool = False,
-    ) -> SchedulerSwappedInOutputs:
+    ) -> Tuple[SchedulerSwappedInOutputs, List[PhysicalTokenBlock]]:
         """Schedule sequence groups that are swapped out.
 
         It schedules swapped requests as long as it fits `budget` and
@@ -669,14 +703,17 @@ class Scheduler:
                 all tokens.
 
         Returns:
-            SchedulerSwappedInOutputs.
+            SchedulerSwappedInOutputs, List[PhysicalTokenBlock] (blocks to free)
         """
         # Blocks that need to be swapped or copied before model execution.
         blocks_to_swap_in: List[Tuple[int, int]] = []
         blocks_to_copy: List[Tuple[int, int]] = []
+        blocks_to_migrate: List[Tuple[List[int], List[int]]] = []
+        slots_to_migrate: List[List[int]] = []
         decode_seq_groups: List[ScheduledSequenceGroup] = []
         prefill_seq_groups: List[ScheduledSequenceGroup] = []
         infeasible_seq_groups: List[SequenceGroup] = []
+        blocks_to_free: List[PhysicalTokenBlock] = []
 
         swapped_queue = self.swapped
 
@@ -730,7 +767,8 @@ class Scheduler:
                 curr_loras.add(lora_int_id)
             swapped_queue.popleft()
             self._swap_in(seq_group, blocks_to_swap_in)
-            self._append_slots(seq_group, blocks_to_copy)
+            self._append_slots(seq_group, blocks_to_copy, blocks_to_migrate,
+                               slots_to_migrate, blocks_to_free)
             is_prefill = seq_group.is_prefill()
             if is_prefill:
                 prefill_seq_groups.append(
@@ -749,10 +787,12 @@ class Scheduler:
             prefill_seq_groups=prefill_seq_groups,
             blocks_to_swap_in=blocks_to_swap_in,
             blocks_to_copy=blocks_to_copy,
+            blocks_to_migrate=blocks_to_migrate,
+            slots_to_migrate=slots_to_migrate,
             num_lookahead_slots=self._get_num_lookahead_slots(
                 is_prefill=False),
             infeasible_seq_groups=infeasible_seq_groups,
-        )
+        ), blocks_to_free
 
     def _get_prompt_limit(self, seq_group: SequenceGroup) -> int:
         if self.scheduler_config.chunked_prefill_enabled:
@@ -986,6 +1026,7 @@ class Scheduler:
         prefills = SchedulerPrefillOutputs.create_empty()
         running_scheduled = SchedulerRunningOutputs.create_empty()
         swapped_in = SchedulerSwappedInOutputs.create_empty()
+        blocks_to_free: List[PhysicalTokenBlock] = []
 
         # If any requests are swapped, prioritized swapped requests.
         if not self.swapped:
@@ -1001,15 +1042,17 @@ class Scheduler:
         # NOTE: If `_schedule_prefills` doesn't enable chunking, self.running
         # only contains decode requests, not chunked prefills.
         if len(prefills.seq_groups) == 0:
-            running_scheduled = self._schedule_running(budget,
-                                                       curr_loras,
-                                                       enable_chunking=False)
+            running_scheduled, new_blocks_to_free = self._schedule_running(
+                budget, curr_loras, enable_chunking=False)
+            blocks_to_free.extend(new_blocks_to_free)
 
             # If any sequence group is preempted, do not swap in any sequence
             # group. because it means there's no slot for new running requests.
             if len(running_scheduled.preempted) + len(
                     running_scheduled.swapped_out) == 0:
-                swapped_in = self._schedule_swapped(budget, curr_loras)
+                swapped_in, new_blocks_to_free = self._schedule_swapped(
+                    budget, curr_loras)
+                blocks_to_free.extend(new_blocks_to_free)
 
         assert (budget.num_batched_tokens <=
                 self.scheduler_config.max_num_batched_tokens)
@@ -1049,8 +1092,19 @@ class Scheduler:
         blocks_to_copy = running_scheduled.blocks_to_copy
         blocks_to_copy.extend(swapped_in.blocks_to_copy)
 
+        blocks_to_migrate = running_scheduled.blocks_to_migrate
+        blocks_to_migrate.extend(swapped_in.blocks_to_migrate)
+        slots_to_migrate = running_scheduled.slots_to_migrate
+        slots_to_migrate.extend(swapped_in.slots_to_migrate)
+
         ignored_seq_groups = prefills.ignored_seq_groups
         ignored_seq_groups.extend(swapped_in.infeasible_seq_groups)
+
+        for block in blocks_to_free:
+            if block.device == Device.GPU:
+                self.block_manager.gpu_allocator.free(block)
+            else:  # Device.CPU
+                self.block_manager.cpu_allocator.free(block)
 
         return SchedulerOutputs(
             scheduled_seq_groups=scheduled_seq_groups,
@@ -1059,6 +1113,8 @@ class Scheduler:
             blocks_to_swap_in=swapped_in.blocks_to_swap_in,
             blocks_to_swap_out=running_scheduled.blocks_to_swap_out,
             blocks_to_copy=blocks_to_copy,
+            blocks_to_migrate=blocks_to_migrate,
+            slots_to_migrate=slots_to_migrate,
             ignored_seq_groups=ignored_seq_groups,
             num_lookahead_slots=running_scheduled.num_lookahead_slots,
             running_queue_size=len(self.running),
@@ -1087,17 +1143,20 @@ class Scheduler:
 
         prefills = SchedulerPrefillOutputs.create_empty()
         swapped_in = SchedulerSwappedInOutputs.create_empty()
+        blocks_to_free: List[PhysicalTokenBlock] = []
 
         # Decoding should be always scheduled first by fcfs.
-        running_scheduled = self._schedule_running(budget,
-                                                   curr_loras,
-                                                   enable_chunking=True)
+        running_scheduled, new_blocks_to_free = self._schedule_running(
+            budget, curr_loras, enable_chunking=True)
+        blocks_to_free.extend(new_blocks_to_free)
 
         # Schedule swapped out requests.
         # If preemption happens, it means we don't have space for swap-in.
         if len(running_scheduled.preempted) + len(
                 running_scheduled.swapped_out) == 0:
-            swapped_in = self._schedule_swapped(budget, curr_loras)
+            swapped_in, new_blocks_to_free = self._schedule_swapped(
+                budget, curr_loras)
+            blocks_to_free.extend(new_blocks_to_free)
 
         # Schedule new prefills.
         prefills = self._schedule_prefills(budget,
@@ -1127,6 +1186,13 @@ class Scheduler:
 
         # Update swapped requests.
         self.swapped.extend(running_scheduled.swapped_out)
+
+        for block in blocks_to_free:
+            if block.device == Device.GPU:
+                self.block_manager.gpu_allocator.free(block)
+            else:  # Device.CPU
+                self.block_manager.cpu_allocator.free(block)
+
         return SchedulerOutputs(
             scheduled_seq_groups=(prefills.seq_groups +
                                   running_scheduled.prefill_seq_groups +
@@ -1141,6 +1207,10 @@ class Scheduler:
             blocks_to_swap_out=running_scheduled.blocks_to_swap_out,
             blocks_to_copy=running_scheduled.blocks_to_copy +
             swapped_in.blocks_to_copy,
+            blocks_to_migrate=running_scheduled.blocks_to_migrate +
+            swapped_in.blocks_to_migrate,
+            slots_to_migrate=running_scheduled.slots_to_migrate +
+            swapped_in.slots_to_migrate,
             ignored_seq_groups=prefills.ignored_seq_groups +
             swapped_in.infeasible_seq_groups,
             num_lookahead_slots=running_scheduled.num_lookahead_slots,
@@ -1394,8 +1464,13 @@ class Scheduler:
         self,
         seq_group: SequenceGroup,
         blocks_to_copy: List[Tuple[int, int]],
+        blocks_to_migrate: List[Tuple[List[int], List[int]]],
+        slots_to_migrate: List[List[int]],
+        blocks_to_free: List[PhysicalTokenBlock],
     ) -> None:
         """Appends new slots to the sequences in the given sequence group.
+
+        The physical blocks to free are returned.
 
         Args:
             seq_group (SequenceGroup): The sequence group containing the
@@ -1405,6 +1480,22 @@ class Scheduler:
                 int is the destination block index. This list is updated with
                 the new source and destination block indices for the appended
                 slots.
+            blocks_to_migrate (List[Tuple[List[int], List[int]]]): A list of
+                tuples of two lists of ints, the first list of ints is the
+                source block indices and the second list of ints is the
+                destination block indices. This is particularly used for KV
+                cache sparsification where we may copy from certain blocks to
+                new blocks. This list is updated with the source and destination
+                block indices for the appended slots.
+            slots_to_migrate (List[List[int]]): A list of lists of ints, with
+                each list being the slots that need to be copied during the
+                migration. This is particularly used for KV cache sparsification
+                where we need to know which slots of the original blocks we need
+                to copy to the new blocks. This list is updated with indices of
+                slots to copy during migration.
+            blocks_to_free (List[PhysicalTokenBlock]): A list of actual physical
+                token blocks to free. This list is updated with the new physical
+                token blocks to free (if any).
         """
         num_lookahead_slots = self._get_num_lookahead_slots(is_prefill=False)
         seq_group.init_multi_step(num_scheduler_steps=num_lookahead_slots + 1)
@@ -1413,6 +1504,13 @@ class Scheduler:
             cows = self.block_manager.append_slots(seq, num_lookahead_slots)
             if len(cows) > 0:
                 blocks_to_copy.extend(cows)
+
+            migrate_info = self.block_manager.append_migrate_slots(seq)
+            if migrate_info is not None:
+                blocks_to_migrate.extend(migrate_info[0])
+                blocks_to_free.extend(migrate_info[1])
+                slots_to_migrate.append(seq.slots_to_migrate)
+                seq.set_slots_to_migrate([])  # Reset
 
     def _preempt(
         self,

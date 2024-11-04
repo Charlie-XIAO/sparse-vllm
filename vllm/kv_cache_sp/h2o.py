@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List
 
 import numpy as np
@@ -29,9 +30,16 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         # Accumulate the attention scores
         agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
         if seq_id in self.seq_ids_to_cum_attn_scores:
+            print(f"Sequence {seq_id} "
+                  f"[{len(self.seq_ids_to_cum_attn_scores[seq_id])}]: "
+                  f"{self.seq_ids_to_cum_attn_scores[seq_id]}")
+            print(f"Sequence {seq_id} [{len(agg_attn_scores)}]: "
+                  f"{agg_attn_scores}")
             self.seq_ids_to_cum_attn_scores[seq_id].resize(num_slots)
             self.seq_ids_to_cum_attn_scores[seq_id] += agg_attn_scores
         else:
+            print(f"Sequence {seq_id} [{len(agg_attn_scores)}]: "
+                  f"{agg_attn_scores}")
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
 
         # Flatten block mask and get indices of active slots
@@ -47,7 +55,9 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
                 do_evict=False,
                 num_active_slots=num_active_slots,
                 num_total_slots=len(block_masks) * block_size,
-                num_removed_blocks=0)
+                num_evicted_tokens=0,
+                num_migrate_dst_blocks=0,
+                slots_to_migrate=[])
 
         # We should keep the k last tokens and the k tokens from the rest with
         # the highest attention scores
@@ -76,7 +86,9 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         evict_mask[active_slots[-k_last:]] = False
         slots_to_evict = np.where(evict_mask & total_block_mask)[0]
 
-        num_removed_blocks = 0
+        num_evicted_tokens = 0
+        num_migrate_dst_blocks = 0
+        slots_to_migrate = []
 
         if self.internal == "no-op":
             block_manager.deactivate_slots(seq_id, slots_to_evict)
@@ -93,9 +105,17 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
                     np.s_[i * block_size:(i + 1) * block_size])
             # Update for the returned step output
             block_masks = block_manager.block_tables[seq_id].masks()
-            num_removed_blocks = len(removed_blocks)
+            num_evicted_tokens = len(removed_blocks) * block_size
 
-        elif self.internal == "copy" or self.internal == "spvllm":
+        elif self.internal == "copy":
+            self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
+                self.seq_ids_to_cum_attn_scores[seq_id], slots_to_evict)
+            num_evicted_tokens = len(slots_to_evict)
+            num_migrate_dst_blocks = math.ceil(
+                (num_slots - num_evicted_tokens) / block_size)
+            slots_to_migrate = slots_to_evict.tolist()
+
+        elif self.internal == "spvllm":
             raise NotImplementedError  # TODO(Charlie-XIAO)
 
         else:
@@ -107,9 +127,12 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
             do_evict=True,
             num_active_slots=num_active_slots,
             num_total_slots=len(block_masks) * block_size,
-            num_removed_blocks=num_removed_blocks)
+            num_evicted_tokens=num_evicted_tokens,
+            num_migrate_dst_blocks=num_migrate_dst_blocks,
+            slots_to_migrate=slots_to_migrate)
 
     def clean_self(self, outputs: List[RequestOutput]) -> None:
         for output in outputs:
             for seq_id in output.seq_ids:
                 self.seq_ids_to_cum_attn_scores.pop(seq_id, None)
+        print("\n--------------------------------------\n")

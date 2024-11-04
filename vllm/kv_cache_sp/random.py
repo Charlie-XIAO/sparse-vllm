@@ -55,7 +55,10 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
             block_masks = block_manager.block_tables[seq_id].masks()
             num_removed_blocks = len(removed_blocks)
 
-        elif self.internal == "copy" or self.internal == "spvllm":
+        elif self.internal == "copy":
+            pass  # TODO(Charlie-XIAO)!
+
+        elif self.internal == "spvllm":
             raise NotImplementedError  # TODO(Charlie-XIAO)
 
         else:
