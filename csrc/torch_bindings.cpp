@@ -365,7 +365,7 @@ TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cache_ops), cache_ops) {
       "Tensor block_mapping) -> ()");
   cache_ops.impl("copy_blocks", torch::kCUDA, &copy_blocks);
 
-  // Migrate KC cache tokens from src to dst, used in KV cache sparsification.
+  // Migrate KV cache tokens from src to dst, used in KV cache sparsification.
   cache_ops.def(
       "migrate_blocks(Tensor(a!)[] key_caches, Tensor[](b!) value_caches, "
       "Tensor block_mapping_src, Tensor block_mapping_dst, "
