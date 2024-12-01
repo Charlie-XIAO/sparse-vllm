@@ -283,14 +283,6 @@ class PagedAttention:
     ) -> None:
         key_caches = [kv_cache[0] for kv_cache in kv_caches]
         value_caches = [kv_cache[1] for kv_cache in kv_caches]
-        # TODO(Charlie-XIAO): remove
-        print("--- INI COPY ---")
-        print(f"{num_heads=}, {head_size=}")
-        print(f"{srcs_and_dsts_blocks[:, 0, :]}")
-        print(f"{srcs_and_dsts_blocks[:, 1, :]}")
-        print(f"{srcs_and_dsts_slots[:, 0, :]}")
-        print(f"{srcs_and_dsts_slots[:, 1, :]}")
-        print("--- END COPY ---")
         ops.migrate_blocks(key_caches, value_caches,
                            srcs_and_dsts_blocks[:, 0, :],
                            srcs_and_dsts_blocks[:, 1, :],

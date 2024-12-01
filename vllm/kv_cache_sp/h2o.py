@@ -28,19 +28,11 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         num_slots = attn_scores.size(2)
 
         # Accumulate the attention scores
-        # TODO(Charlie-XIAO): remove prints
         agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
         if seq_id in self.seq_ids_to_cum_attn_scores:
-            print(f"Sequence {seq_id} "
-                  f"[{len(self.seq_ids_to_cum_attn_scores[seq_id])}]: "
-                  f"{self.seq_ids_to_cum_attn_scores[seq_id]}")
-            print(f"Sequence {seq_id} [{len(agg_attn_scores)}]: "
-                  f"{agg_attn_scores}")
             self.seq_ids_to_cum_attn_scores[seq_id].resize(num_slots)
             self.seq_ids_to_cum_attn_scores[seq_id] += agg_attn_scores
         else:
-            print(f"Sequence {seq_id} [{len(agg_attn_scores)}]: "
-                  f"{agg_attn_scores}")
             self.seq_ids_to_cum_attn_scores[seq_id] = agg_attn_scores
 
         # Flatten block mask and get indices of active slots
@@ -137,5 +129,3 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         for output in outputs:
             for seq_id in output.seq_ids:
                 self.seq_ids_to_cum_attn_scores.pop(seq_id, None)
-        # TODO(Charlie-XIAO): remove
-        print("\n--------------------------------------\n")

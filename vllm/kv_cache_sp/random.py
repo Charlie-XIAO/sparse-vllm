@@ -56,7 +56,7 @@ class RandomKVCacheSparsifier(KVCacheSparsifierBase):
             num_removed_blocks = len(removed_blocks)
 
         elif self.internal == "copy":
-            pass  # TODO(Charlie-XIAO)!
+            raise NotImplementedError  # TODO(Charlie-XIAO)!
 
         elif self.internal == "spvllm":
             raise NotImplementedError  # TODO(Charlie-XIAO)

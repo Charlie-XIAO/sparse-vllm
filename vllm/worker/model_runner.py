@@ -501,11 +501,16 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         else:
             inter_data.input_tokens[seq_idx].append(tokens)
 
+        # The input position should be according to the logical length instead
+        # of the physical length (which subtracts the number of physically
+        # evicted tokens)
         if (seq_len - context_len) == 1:
-            inter_data.input_positions[seq_idx].append(seq_len - 1)
+            inter_data.input_positions[seq_idx].append(
+                seq_data.get_prompt_len() + seq_data.get_output_len() - 1)
         else:
             inter_data.input_positions[seq_idx].extend(
-                range(context_len, seq_len))
+                range(context_len,
+                      seq_data.get_prompt_len() + seq_data.get_output_len()))
 
         inter_data.query_lens[
             seq_idx] = seq_len - context_len if inter_data.is_prompt else 1
