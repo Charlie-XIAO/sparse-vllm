@@ -89,6 +89,8 @@ class AttentionBackend(ABC):
         kv_caches: List[torch.Tensor],
         srcs_and_dsts_blocks: torch.Tensor,
         srcs_and_dsts_slots: torch.Tensor,
+        num_heads: int,
+        head_size: int,
     ) -> None:
         raise NotImplementedError
 

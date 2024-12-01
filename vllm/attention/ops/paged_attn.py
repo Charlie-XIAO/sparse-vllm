@@ -278,10 +278,14 @@ class PagedAttention:
         kv_caches: List[torch.Tensor],
         srcs_and_dsts_blocks: torch.Tensor,
         srcs_and_dsts_slots: torch.Tensor,
+        num_heads: int,
+        head_size: int,
     ) -> None:
         key_caches = [kv_cache[0] for kv_cache in kv_caches]
         value_caches = [kv_cache[1] for kv_cache in kv_caches]
+        # TODO(Charlie-XIAO): remove
         print("--- INI COPY ---")
+        print(f"{num_heads=}, {head_size=}")
         print(f"{srcs_and_dsts_blocks[:, 0, :]}")
         print(f"{srcs_and_dsts_blocks[:, 1, :]}")
         print(f"{srcs_and_dsts_slots[:, 0, :]}")
@@ -291,4 +295,4 @@ class PagedAttention:
                            srcs_and_dsts_blocks[:, 0, :],
                            srcs_and_dsts_blocks[:, 1, :],
                            srcs_and_dsts_slots[:, 0, :],
-                           srcs_and_dsts_slots[:, 1, :])
+                           srcs_and_dsts_slots[:, 1, :], num_heads, head_size)

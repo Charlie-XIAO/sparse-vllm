@@ -159,11 +159,13 @@ __global__ void migrate_blocks_kernel(
                                                     // block_size]
     const int64_t* __restrict__ slot_mapping_dst,   // [num_seqs, num_blocks *
                                                     // block_size]
-    const int head_dim, const int block_size) {
+    const int num_heads, const int head_size, const int block_size) {
   const int layer_idx = blockIdx.x;
   const int seq_idx = blockIdx.y;
   const int slot_idx = blockIdx.z;
   const int num_slots = gridDim.z;  // = num_blocks * block_size
+  const int head_dim = num_heads * head_size;
+  const int x = 16 / sizeof(scalar_t);
 
   // Slot mappings are of shape (num_seqs, num_slots), we are essentually
   // accessing the slot_mapping_src/dst[seq_idx, slot_idx]
@@ -188,23 +190,37 @@ __global__ void migrate_blocks_kernel(
   const int64_t dst_block_idx = block_mapping_dst[dst_slot_idx / block_size];
   const int64_t dst_block_offset = dst_slot_idx % block_size;
 
-  // Precompute the offsets outside the loop without considering the head_dim
-  // (i.e., num_heads * head_size) dimension
-  const int64_t src_general_offset =
-      src_block_idx * head_dim * block_size + src_block_offset;
-  const int64_t dst_general_offset =
-      dst_block_idx * head_dim * block_size + dst_block_offset;
-
-  // Copy the key and value caches; note that we are putting in two individual
-  // loops to mitigate potential memory coalescing
+  // Copy key caches [num_blocks, num_heads, head_size/x, block_size, x]
   for (int i = threadIdx.x; i < head_dim; i += blockDim.x) {
-    const int64_t src_offset = src_general_offset + i * block_size;
-    const int64_t dst_offset = dst_general_offset + i * block_size;
+    const int head_idx = i / head_size;
+    const int head_offset = i % head_size;
+    const int x_idx = head_offset / x;
+    const int x_offset = head_offset % x;
+
+    const int64_t src_offset = src_block_idx * head_dim * block_size +
+                               head_idx * head_size * block_size +
+                               x_idx * block_size * x + src_block_offset * x +
+                               x_offset;
+    const int64_t dst_offset = dst_block_idx * head_dim * block_size +
+                               head_idx * head_size * block_size +
+                               x_idx * block_size * x + dst_block_offset * x +
+                               x_offset;
+
     key_cache[dst_offset] = key_cache[src_offset];
   }
+
+  // Copy value caches [num_blocks, num_heads, head_size, block_size]
   for (int i = threadIdx.x; i < head_dim; i += blockDim.x) {
-    const int64_t src_offset = src_general_offset + i * block_size;
-    const int64_t dst_offset = dst_general_offset + i * block_size;
+    const int head_idx = i / head_size;
+    const int head_offset = i % head_size;
+
+    const int64_t src_offset = src_block_idx * head_dim * block_size +
+                               head_idx * head_size * block_size +
+                               head_offset * block_size + src_block_offset;
+    const int64_t dst_offset = dst_block_idx * head_dim * block_size +
+                               head_idx * head_size * block_size +
+                               head_offset * block_size + dst_block_offset;
+
     value_cache[dst_offset] = value_cache[src_offset];
   }
 }
@@ -216,7 +232,8 @@ void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
                     const torch::Tensor& block_mapping_src,
                     const torch::Tensor& block_mapping_dst,
                     const torch::Tensor& slot_mapping_src,
-                    const torch::Tensor& slot_mapping_dst) {
+                    const torch::Tensor& slot_mapping_dst,
+                    const int64_t num_heads, const int64_t head_size) {
   const int num_layers = key_caches.size();
   const int num_seqs = block_mapping_src.size(0);
   const int num_blocks = block_mapping_src.size(1);
@@ -254,9 +271,8 @@ void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
 
   // Launch the kernel
   const int block_size = num_slots / num_blocks;
-  const int head_dim = key_caches[0][0].numel() / block_size;
   dim3 grid(num_layers, num_seqs, num_slots);
-  dim3 block(std::min(head_dim, 512));
+  dim3 block(std::min(num_heads * head_size, int64_t(64)));
   const at::cuda::OptionalCUDAGuard device_guard(cache_device);
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   VLLM_DISPATCH_FLOATING_AND_BYTE_TYPES(
@@ -267,7 +283,8 @@ void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
             block_mapping_src.data_ptr<int64_t>(),
             block_mapping_dst.data_ptr<int64_t>(),
             slot_mapping_src.data_ptr<int64_t>(),
-            slot_mapping_dst.data_ptr<int64_t>(), head_dim, block_size);
+            slot_mapping_dst.data_ptr<int64_t>(), num_heads, head_size,
+            block_size);
       }));
 }
 

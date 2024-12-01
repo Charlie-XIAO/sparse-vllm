@@ -369,7 +369,8 @@ TORCH_LIBRARY_EXPAND(CONCAT(TORCH_EXTENSION_NAME, _cache_ops), cache_ops) {
   cache_ops.def(
       "migrate_blocks(Tensor(a!)[] key_caches, Tensor[](b!) value_caches, "
       "Tensor block_mapping_src, Tensor block_mapping_dst, "
-      "Tensor slot_mapping_src, Tensor slot_mapping_dst) -> ()");
+      "Tensor slot_mapping_src, Tensor slot_mapping_dst, int num_heads, "
+      "int head_size) -> ()");
   cache_ops.impl("migrate_blocks", torch::kCUDA, &migrate_blocks);
 
   // Reshape the key and value tensors and cache them.

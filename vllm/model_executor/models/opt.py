@@ -257,6 +257,7 @@ class OPTDecoder(nn.Module):
         inputs_embeds: Optional[torch.Tensor] = None,
         all_attn_scores: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        print(positions)  # TODO(Charlie-XIAO): remove
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings(input_ids)
         pos_embeds = self.embed_positions(positions)

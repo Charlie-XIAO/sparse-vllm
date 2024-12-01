@@ -28,6 +28,7 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         num_slots = attn_scores.size(2)
 
         # Accumulate the attention scores
+        # TODO(Charlie-XIAO): remove prints
         agg_attn_scores = attn_scores.numpy().mean(axis=(0, 1))
         if seq_id in self.seq_ids_to_cum_attn_scores:
             print(f"Sequence {seq_id} "
@@ -113,7 +114,8 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
             num_evicted_tokens = len(slots_to_evict)
             num_migrate_dst_blocks = math.ceil(
                 (num_slots - num_evicted_tokens) / block_size)
-            slots_to_migrate = slots_to_evict.tolist()
+            slots_to_migrate = np.setdiff1d(np.arange(num_slots),
+                                            slots_to_evict).tolist()
 
         elif self.internal == "spvllm":
             raise NotImplementedError  # TODO(Charlie-XIAO)
@@ -135,4 +137,5 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
         for output in outputs:
             for seq_id in output.seq_ids:
                 self.seq_ids_to_cum_attn_scores.pop(seq_id, None)
+        # TODO(Charlie-XIAO): remove
         print("\n--------------------------------------\n")

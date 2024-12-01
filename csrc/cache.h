@@ -23,7 +23,8 @@ void migrate_blocks(std::vector<torch::Tensor> const& key_caches,
                     const torch::Tensor& block_mapping_src,
                     const torch::Tensor& block_mapping_dst,
                     const torch::Tensor& slot_mapping_src,
-                    const torch::Tensor& slot_mapping_dst);
+                    const torch::Tensor& slot_mapping_dst,
+                    const int64_t num_heads, const int64_t head_size);
 
 void reshape_and_cache(torch::Tensor& key, torch::Tensor& value,
                        torch::Tensor& key_cache, torch::Tensor& value_cache,
