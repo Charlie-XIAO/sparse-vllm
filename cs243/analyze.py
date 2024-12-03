@@ -28,17 +28,49 @@ def analyze(f, name):
             copy_overhead_num += 1
             copy_overhead_total += int(line[9:])
 
-    num_active_arr = np.asarray(num_active_arr)
-    num_total_arr = np.asarray(num_total_arr)
+    # Strip off warmup and profiling stages
+    num_active_arr = np.asarray(num_active_arr[200:])
+    num_total_arr = np.asarray(num_total_arr[200:])
+    frag_prop_arr = 1 - num_active_arr / num_total_arr
 
     with (RESULTS_DIR / f"{name}-frag.npy").open("wb") as ffrag:
         np.save(ffrag, num_active_arr)
         np.save(ffrag, num_total_arr)
 
     return dict(
+        frag_prop_max=frag_prop_arr.max(),
+        frag_prop_mean=frag_prop_arr.mean(),
+        frag_prop_median=np.median(frag_prop_arr),
+        frag_prop_p99=np.percentile(frag_prop_arr, 99),
         copy_overhead_num=copy_overhead_num,
         copy_overhead_total=copy_overhead_total,
     )
+
+
+def append_metrics(f, results):
+    metrics = json.load(f)
+    for key in (
+            "duration",
+            "completed",
+            "total_input_tokens",
+            "total_output_tokens",
+            "request_throughput",
+            "output_throughput",
+            "total_token_throughput",
+            "mean_ttft_ms",
+            "median_ttft_ms",
+            "std_ttft_ms",
+            "p99_ttft_ms",
+            "mean_tpot_ms",
+            "median_tpot_ms",
+            "std_tpot_ms",
+            "p99_tpot_ms",
+            "mean_itl_ms",
+            "median_itl_ms",
+            "std_itl_ms",
+            "p99_itl_ms",
+    ):
+        results[f"__{key}__"] = metrics[key]
 
 
 def main():
@@ -46,9 +78,16 @@ def main():
 
     for path in LOGS_DIR.glob("bench--*.stdout.log"):
         name = path.name[7:-11]
+        metrics_path = LOGS_DIR / f"bench--{name}.metrics.json"
+        if not metrics_path.exists():
+            continue
+
         with path.open("r", encoding="utf-8") as f:
             results = analyze(f, name)
-            all_results[name] = results
+        with metrics_path.open("r", encoding="utf-8") as f:
+            append_metrics(f, results)
+
+        all_results[name] = results
 
     with (RESULTS_DIR / "analyze.json").open("w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2)
