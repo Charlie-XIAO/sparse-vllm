@@ -83,6 +83,17 @@ class AttentionBackend(ABC):
     ) -> None:
         raise NotImplementedError
 
+    @staticmethod
+    @abstractmethod
+    def migrate_blocks(
+        kv_caches: List[torch.Tensor],
+        srcs_and_dsts_blocks: torch.Tensor,
+        srcs_and_dsts_slots: torch.Tensor,
+        num_heads: int,
+        head_size: int,
+    ) -> None:
+        raise NotImplementedError
+
     def advance_step(self, model_input: "ModelRunnerInputBase",
                      sampled_token_ids: Optional[torch.Tensor],
                      block_size: int, num_seqs: int, num_queries: int) -> None:

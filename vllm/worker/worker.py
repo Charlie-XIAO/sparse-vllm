@@ -3,6 +3,7 @@ import gc
 import os
 from typing import Dict, List, Optional, Set, Tuple, Type, Union
 
+import numpy as np
 import torch
 import torch.distributed
 
@@ -313,11 +314,57 @@ class Worker(LocalOrDistributedWorkerBase):
                                       device=self.device,
                                       dtype=torch.int64).view(-1, 2)
 
+        if len(execute_model_req.blocks_to_migrate) > 0 and len(
+                execute_model_req.slots_to_migrate) > 0:
+            num_seqs = len(execute_model_req.blocks_to_migrate)
+            max_migrate_src_len = max(
+                len(item[0]) for item in execute_model_req.blocks_to_migrate)
+            max_migrate_dst_len = max(
+                len(item[1]) for item in execute_model_req.blocks_to_migrate)
+            max_migrate_len = max(max_migrate_src_len, max_migrate_dst_len)
+            block_size = self.cache_engine[virtual_engine].block_size
+
+            # Construct the tensor of `blocks_to_migrate` of shape (num_seqs, 2,
+            # max_num_blocks)
+            blocks_to_migrate = np.full((num_seqs, 2, max_migrate_len),
+                                        -1,
+                                        dtype=np.int64)
+            for i, item in enumerate(execute_model_req.blocks_to_migrate):
+                blocks_to_migrate[i, 0, :len(item[0])] = item[0]
+                blocks_to_migrate[i, 1, :len(item[1])] = item[1]
+            blocks_to_migrate = torch.from_numpy(blocks_to_migrate).to(
+                "cpu", dtype=torch.int64)
+
+            # Construct the tensor of `slots_to_migrate` of shape (num_seqs, 2,
+            # max_num_blocks * block_size)
+            num_slots = max_migrate_len * block_size
+            slots_to_migrate = np.full((num_seqs, 2, num_slots),
+                                       -1,
+                                       dtype=np.int64)
+            for i, item in enumerate(execute_model_req.slots_to_migrate):
+                # Stores the source and destination slot indices within the
+                # corresponding sequence
+                src_slots = np.asarray(item)
+                dst_slots = np.arange(len(item))
+                slots_to_migrate[i, 0, src_slots] = src_slots
+                slots_to_migrate[i, 1, src_slots] = dst_slots
+            slots_to_migrate = torch.from_numpy(slots_to_migrate).to(
+                "cpu", dtype=torch.int64)
+        else:
+            blocks_to_migrate = torch.empty((0, 2, 0),
+                                            dtype=torch.int64,
+                                            device="cpu")
+            slots_to_migrate = torch.empty((0, 2, 0),
+                                           dtype=torch.int64,
+                                           device="cpu")
+
         return WorkerInput(
             num_seq_groups=num_seq_groups,
             blocks_to_swap_in=blocks_to_swap_in,
             blocks_to_swap_out=blocks_to_swap_out,
             blocks_to_copy=blocks_to_copy,
+            blocks_to_migrate=blocks_to_migrate,
+            slots_to_migrate=slots_to_migrate,
             virtual_engine=virtual_engine,
             num_steps=num_steps,
         )
@@ -337,6 +384,12 @@ class Worker(LocalOrDistributedWorkerBase):
         if (worker_input.blocks_to_copy is not None
                 and worker_input.blocks_to_copy.numel() > 0):
             self.cache_engine[virtual_engine].copy(worker_input.blocks_to_copy)
+        if (worker_input.blocks_to_migrate is not None
+                and worker_input.slots_to_migrate is not None
+                and worker_input.blocks_to_migrate.numel() > 0
+                and worker_input.slots_to_migrate.numel() > 0):
+            self.cache_engine[virtual_engine].migrate(
+                worker_input.blocks_to_migrate, worker_input.slots_to_migrate)
 
     def _get_cached_seq_group_metadata(
             self,

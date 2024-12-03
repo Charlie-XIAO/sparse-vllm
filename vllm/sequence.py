@@ -322,6 +322,7 @@ class SequenceData(msgspec.Struct,
         the beginning again (e.g., sequence is preempted).
         """
         self._num_computed_tokens = 0
+        self._num_evicted_tokens = 0
         self._stage = SequenceStage.PREFILL
         self._new_appended_tokens = []
 
@@ -458,6 +459,18 @@ class Sequence:
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
 
+        # Used for tracking the number of destination blocks to migrate to.
+        # This is stateful. Normally it is zero, only when we are performing KV
+        # cache sparsification with copying this will be set to certain value,
+        # then reset after the migration is scheduled.
+        self._num_migrate_dst_blocks: int = 0
+
+        # Used for tracking the slots to copy when doing migration. This is
+        # stateful. Normally it is empty, only when we are performing KV cache
+        # sparsification with copying this be set to certain indices, then reset
+        # after it is used.
+        self._slots_to_migrate: List[int] = []
+
     @property
     def n_blocks(self) -> int:
         return (self.get_len() + self.block_size - 1) // self.block_size
@@ -556,6 +569,8 @@ class Sequence:
 
     def reset_state_for_recompute(self):
         """Reset the sequence states for recomputation."""
+        self._num_migrate_dst_blocks = 0
+        self._slots_to_migrate = []
         self.data.reset_state_for_recompute()
 
     def append_token_id(self, token_id: int, logprobs: Dict[int,
@@ -632,10 +647,24 @@ class Sequence:
     def increment_num_evicted_tokens(self, num_evicted_tokens: int) -> None:
         self.data._num_evicted_tokens += num_evicted_tokens
 
+    @property
+    def num_migrate_dst_blocks(self) -> int:
+        return self._num_migrate_dst_blocks
+
+    def set_num_migrate_dst_blocks(self, num_migrate_dst_blocks: int) -> None:
+        self._num_migrate_dst_blocks = num_migrate_dst_blocks
+
+    @property
+    def slots_to_migrate(self) -> List[int]:
+        return self._slots_to_migrate
+
+    def set_slots_to_migrate(self, slots_to_migrate: List[int]) -> None:
+        self._slots_to_migrate = slots_to_migrate
+
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "
                 f"status={self.status.name}, "
-                f"num_blocks={self.n_blocks}, ")
+                f"num_blocks={self.n_blocks})")
 
 
 class SequenceGroupState(msgspec.Struct,
@@ -1306,6 +1335,13 @@ class ExecuteModelRequest(
                                    int]] = msgspec.field(default_factory=list)
     # Blocks to copy. Source to dest block.
     blocks_to_copy: List[Tuple[int, int]] = msgspec.field(default_factory=list)
+    # Blocks to migrate for KV cache sparsification. List of source blocks and
+    # list of destination blocks. Likely of different lengths.
+    blocks_to_migrate: List[Tuple[List[int], List[int]]] = msgspec.field(
+        default_factory=list)
+    # Slots to migrate for KV cache sparsification. List of slots that need to
+    # be copied during migration.
+    slots_to_migrate: List[List[int]] = msgspec.field(default_factory=list)
     # Virtual engine ID for pipeline parallel.
     virtual_engine: int = 0
     # The number of slots for lookahead decoding.
@@ -1360,6 +1396,8 @@ class ExecuteModelRequest(
             blocks_to_swap_in=self.blocks_to_swap_in.copy(),
             blocks_to_swap_out=self.blocks_to_swap_out.copy(),
             blocks_to_copy=self.blocks_to_copy.copy(),
+            blocks_to_migrate=copy.deepcopy(self.blocks_to_migrate),
+            slots_to_migrate=copy.deepcopy(self.slots_to_migrate),
             virtual_engine=self.virtual_engine,
             num_lookahead_slots=self.num_lookahead_slots,
             running_queue_size=self.running_queue_size,

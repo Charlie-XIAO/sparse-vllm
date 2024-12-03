@@ -67,6 +67,18 @@ class XFormersBackend(AttentionBackend):
     ) -> None:
         PagedAttention.copy_blocks(kv_caches, src_to_dists)
 
+    @staticmethod
+    def migrate_blocks(
+        kv_caches: List[torch.Tensor],
+        srcs_and_dsts_blocks: torch.Tensor,
+        srcs_and_dsts_slots: torch.Tensor,
+        num_heads: int,
+        head_size: int,
+    ) -> None:
+        PagedAttention.migrate_blocks(kv_caches, srcs_and_dsts_blocks,
+                                      srcs_and_dsts_slots, num_heads,
+                                      head_size)
+
 
 @dataclass
 class XFormersMetadata(AttentionMetadata, PagedAttentionMetadata):

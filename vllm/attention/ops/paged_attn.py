@@ -272,3 +272,19 @@ class PagedAttention:
         key_caches = [kv_cache[0] for kv_cache in kv_caches]
         value_caches = [kv_cache[1] for kv_cache in kv_caches]
         ops.copy_blocks(key_caches, value_caches, src_to_dists)
+
+    @staticmethod
+    def migrate_blocks(
+        kv_caches: List[torch.Tensor],
+        srcs_and_dsts_blocks: torch.Tensor,
+        srcs_and_dsts_slots: torch.Tensor,
+        num_heads: int,
+        head_size: int,
+    ) -> None:
+        key_caches = [kv_cache[0] for kv_cache in kv_caches]
+        value_caches = [kv_cache[1] for kv_cache in kv_caches]
+        ops.migrate_blocks(key_caches, value_caches,
+                           srcs_and_dsts_blocks[:, 0, :],
+                           srcs_and_dsts_blocks[:, 1, :],
+                           srcs_and_dsts_slots[:, 0, :],
+                           srcs_and_dsts_slots[:, 1, :], num_heads, head_size)

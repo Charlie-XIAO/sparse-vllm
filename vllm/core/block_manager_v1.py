@@ -376,10 +376,14 @@ class BlockSpaceManagerV1(BlockSpaceManager):
                 ), "lookahead allocation not supported in BlockSpaceManagerV1"
 
         # Simple heuristic: If there is at least one free block
-        # for each sequence, we can append.
+        # for each sequence, we can append. Also need to count in case of KV
+        # cache sparsification, where we need to preallocate additional blocks
+        # to copy to
         num_free_gpu_blocks = self.gpu_allocator.get_num_free_blocks()
-        num_seqs = seq_group.num_seqs(status=SequenceStatus.RUNNING)
-        return num_seqs <= num_free_gpu_blocks
+        num_needed_gpu_blocks = 0
+        for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+            num_needed_gpu_blocks += 1 + seq.num_migrate_dst_blocks
+        return num_needed_gpu_blocks <= num_free_gpu_blocks
 
     def _promote_last_block(
         self,
@@ -491,6 +495,31 @@ class BlockSpaceManagerV1(BlockSpaceManager):
             block_table[-1] = new_block
             self.gpu_allocator.free(last_block)
             return [(last_block.block_number, new_block.block_number)]
+
+    def append_migrate_slots(self, seq: Sequence):
+        if seq.num_migrate_dst_blocks == 0:
+            return  # No need to migrate
+
+        assert not self.enable_caching, "Caching not supported for migration"
+        block_table = self.block_tables[seq.seq_id]
+        block_srcs = block_table.ids()
+
+        # NOTE(Charlie-XIAO): These source blocks are not freed right here
+        # because this is an intermediate step of scheduling and if we free them
+        # now the system may misunderstood that these are free blocks that can
+        # hold more sequences. Instead we will return this information to the
+        # system and let these source blocks be freed just before the scheduling
+        # is finished so the decision is not messed up.
+        block_table_to_free = block_table.copy()
+
+        # Reset the block table and allocate new blocks for it
+        block_table.reset()
+        for _ in range(seq.num_migrate_dst_blocks):
+            new_block = self.gpu_allocator.allocate()
+            block_table.append(new_block)
+
+        seq.set_num_migrate_dst_blocks(0)  # Reset
+        return [(block_srcs, block_table.ids())], block_table_to_free
 
     def fork(self, parent_seq: Sequence, child_seq: Sequence) -> None:
         # NOTE: fork does not allocate a new physical block.

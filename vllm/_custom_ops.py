@@ -1,5 +1,6 @@
 import contextlib
 import functools
+import time
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -128,7 +129,6 @@ def paged_attention_v2(
     blocksparse_block_size: int = 64,
     blocksparse_head_sliding_step: int = 0,
 ) -> None:
-    # TODO(Charlie-XIAO): use block_masks
     torch.ops._C.paged_attention_v2(
         out, exp_sum, max_logits, attn_scores, tmp_out, query, key_cache,
         value_cache, num_kv_heads, scale, block_tables, block_masks, seq_lens,
@@ -869,6 +869,21 @@ def copy_blocks(key_caches: List[torch.Tensor],
                 value_caches: List[torch.Tensor],
                 block_mapping: torch.Tensor) -> None:
     torch.ops._C_cache_ops.copy_blocks(key_caches, value_caches, block_mapping)
+
+
+def migrate_blocks(
+        key_caches: List[torch.Tensor], value_caches: List[torch.Tensor],
+        block_mapping_src: torch.Tensor, block_mapping_dst: torch.Tensor,
+        slot_mapping_src: torch.Tensor, slot_mapping_dst: torch.Tensor,
+        num_heads: int, head_size: int):
+    start = time.perf_counter_ns()
+    torch.ops._C_cache_ops.migrate_blocks(key_caches, value_caches,
+                                          block_mapping_src, block_mapping_dst,
+                                          slot_mapping_src, slot_mapping_dst,
+                                          num_heads, head_size)
+    duration = time.perf_counter_ns() - start
+    if envs.VLLM_CS243_PRINT_BENCHMARK:
+        print(f"#CS243O#,{duration}\n", end="")
 
 
 def swap_blocks(src: torch.Tensor, dst: torch.Tensor,
