@@ -1,5 +1,6 @@
 import contextlib
 import functools
+import time
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -875,10 +876,14 @@ def migrate_blocks(
         block_mapping_src: torch.Tensor, block_mapping_dst: torch.Tensor,
         slot_mapping_src: torch.Tensor, slot_mapping_dst: torch.Tensor,
         num_heads: int, head_size: int):
+    start = time.perf_counter_ns()
     torch.ops._C_cache_ops.migrate_blocks(key_caches, value_caches,
                                           block_mapping_src, block_mapping_dst,
                                           slot_mapping_src, slot_mapping_dst,
                                           num_heads, head_size)
+    duration = time.perf_counter_ns() - start
+    if envs.VLLM_CS243_PRINT_BENCHMARK:
+        print(f"#CS243O#,{duration}\n", end="")
 
 
 def swap_blocks(src: torch.Tensor, dst: torch.Tensor,

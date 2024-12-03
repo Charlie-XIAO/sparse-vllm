@@ -105,7 +105,7 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
                 self.seq_ids_to_cum_attn_scores[seq_id], slots_to_evict)
             num_evicted_tokens = len(slots_to_evict)
             num_migrate_dst_blocks = math.ceil(
-                (num_slots - num_evicted_tokens) / block_size)
+                (num_slots - num_evicted_tokens + 1) / block_size)
             slots_to_migrate = np.setdiff1d(np.arange(num_slots),
                                             slots_to_evict).tolist()
 

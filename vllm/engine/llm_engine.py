@@ -1828,6 +1828,7 @@ class LLMEngine:
                     scheduled_seqs[seq_id].set_slots_to_migrate(
                         sparsifier_output.slots_to_migrate)
 
-        if (envs.VLLM_CS243_PRINT_FRAGMENTATION and stat_num_total_slots > 0):
-            print(f"#CS243#,{stat_num_active_slots},{stat_num_total_slots}\n",
+        if (envs.VLLM_CS243_PRINT_BENCHMARK and stat_num_total_slots > 0):
+            print(f"#CS243D#,{len(scheduled_seqs)}\n", end="")
+            print(f"#CS243F#,{stat_num_active_slots},{stat_num_total_slots}\n",
                   end="")

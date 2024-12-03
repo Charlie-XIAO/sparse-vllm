@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Experiment of measuring internal fragmentations."""
+"""Run benchmark experiments and generate logs."""
 
 import argparse
 import os
@@ -19,7 +19,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 def main(args):
     print(args)
-    args_repr = ("fragmentation--"
+    args_repr = ("bench--"
                  f"{args.sparse_kv_cache_method}-"
                  f"{args.sparse_kv_cache_budget}-"
                  f"{args.sparse_kv_cache_num_per_evict}-"
@@ -39,6 +39,12 @@ def main(args):
 
     # Determine server options
     server_options = [
+        "--gpu-memory-utilization",
+        "0.9",
+        "--max-num-batched-tokens",
+        "2048",
+        "--max-num-seqs",
+        "2048",
         "--sparse-kv-cache-method",
         args.sparse_kv_cache_method,
         "--sparse-kv-cache-budget",
@@ -57,7 +63,7 @@ def main(args):
         cwd=ROOT_DIR,
         env={
             **os.environ, "VLLM_LOGGING_LEVEL": "ERROR",
-            "VLLM_CS243_PRINT_FRAGMENTATION": "1"
+            "VLLM_CS243_PRINT_BENCHMARK": "1"
         },
         stdout=fout,
         stderr=ferr,
@@ -74,7 +80,7 @@ def main(args):
                 break
             else:
                 print(f"\033[90m[Att#{i + 1}] Server not ready "
-                      "({response.status_code})\033[0m")
+                      f"({response.status_code})\033[0m")
         except requests.exceptions.ConnectionError:
             print(f"\033[90m[Att#{i + 1}] Server not ready (connection error)"
                   "\033[0m")
@@ -87,7 +93,7 @@ def main(args):
         [
             "python", "benchmarks/benchmark_serving.py", "--backend", "vllm",
             "--model", args.model, "--dataset-name", "sharegpt",
-            "--dataset-path", dataset_path, "--request-rate", "10",
+            "--dataset-path", dataset_path, "--request-rate", "inf",
             "--num-prompts", "1000"
         ],
         cwd=ROOT_DIR,
@@ -103,23 +109,8 @@ def main(args):
     fout.close()
     ferr.close()
 
-    # Read server output and create plots
-    print("\033[90mProcessing server output...\033[0m")
-    result = subprocess.run(
-        [
-            "python", "cs243/fragmentation_plot.py", "--log-file",
-            stdout_path.name
-        ],
-        cwd=ROOT_DIR,
-        env=os.environ,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0
-
     print(f"Stdout: \033[90m{stdout_path}\033[0m")
     print(f"Stderr: \033[90m{stderr_path}\033[0m")
-    print(f"Result: \033[90m{result.stdout}\033[0m")
 
 
 if __name__ == "__main__":

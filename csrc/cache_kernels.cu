@@ -164,10 +164,11 @@ __global__ void migrate_blocks_kernel(
   const int seq_idx = blockIdx.y;
   const int slot_idx = blockIdx.z;
   const int num_slots = gridDim.z;  // = num_blocks * block_size
+  const int num_blocks = num_slots / block_size;
   const int head_dim = num_heads * head_size;
   const int x = 16 / sizeof(scalar_t);
 
-  // Slot mappings are of shape (num_seqs, num_slots), we are essentually
+  // Slot mappings are of shape (num_seqs, num_slots), we are essentially
   // accessing the slot_mapping_src/dst[seq_idx, slot_idx]
   const int selected_idx = seq_idx * num_slots + slot_idx;
   const int64_t src_slot_idx = slot_mapping_src[selected_idx];
@@ -185,9 +186,11 @@ __global__ void migrate_blocks_kernel(
   // and the remainder is the offset within that block; the block index needs to
   // be mapped to the physical block number, while the offset is the same
   // logically and physically
-  const int64_t src_block_idx = block_mapping_src[src_slot_idx / block_size];
+  const int64_t src_block_idx =
+      block_mapping_src[seq_idx * num_blocks + src_slot_idx / block_size];
   const int64_t src_block_offset = src_slot_idx % block_size;
-  const int64_t dst_block_idx = block_mapping_dst[dst_slot_idx / block_size];
+  const int64_t dst_block_idx =
+      block_mapping_dst[seq_idx * num_blocks + dst_slot_idx / block_size];
   const int64_t dst_block_offset = dst_slot_idx % block_size;
 
   // Copy key caches [num_blocks, num_heads, head_size/x, block_size, x]

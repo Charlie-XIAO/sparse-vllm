@@ -322,6 +322,7 @@ class SequenceData(msgspec.Struct,
         the beginning again (e.g., sequence is preempted).
         """
         self._num_computed_tokens = 0
+        self._num_evicted_tokens = 0
         self._stage = SequenceStage.PREFILL
         self._new_appended_tokens = []
 
@@ -568,6 +569,8 @@ class Sequence:
 
     def reset_state_for_recompute(self):
         """Reset the sequence states for recomputation."""
+        self._num_migrate_dst_blocks = 0
+        self._slots_to_migrate = []
         self.data.reset_state_for_recompute()
 
     def append_token_id(self, token_id: int, logprobs: Dict[int,
@@ -661,7 +664,7 @@ class Sequence:
     def __repr__(self) -> str:
         return (f"Sequence(seq_id={self.seq_id}, "
                 f"status={self.status.name}, "
-                f"num_blocks={self.n_blocks}, ")
+                f"num_blocks={self.n_blocks})")
 
 
 class SequenceGroupState(msgspec.Struct,
