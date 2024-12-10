@@ -1235,6 +1235,30 @@ class LLMEngine:
              allow_async_output_proc
              ) = self.scheduler[virtual_engine].schedule()
 
+            if envs.VLLM_CS243_PRINT_BENCHMARK:
+                _num_scheduled_seqs = sum(
+                    len(group.seq_group.seqs)
+                    for group in scheduler_outputs.scheduled_seq_groups)
+                _num_ignored_seqs = sum(
+                    len(group.seqs)
+                    for group in scheduler_outputs.ignored_seq_groups)
+                print(
+                    "#CS243S#,"
+                    f"{len(scheduler_outputs.scheduled_seq_groups)},"
+                    f"{_num_scheduled_seqs},"
+                    f"{scheduler_outputs.num_prefill_groups},"
+                    f"{scheduler_outputs.num_batched_tokens},"
+                    f"{len(scheduler_outputs.blocks_to_swap_in)},"
+                    f"{len(scheduler_outputs.blocks_to_swap_out)},"
+                    f"{len(scheduler_outputs.blocks_to_copy)},"
+                    f"{len(scheduler_outputs.blocks_to_migrate)},"
+                    f"{len(scheduler_outputs.slots_to_migrate)},"
+                    f"{len(scheduler_outputs.ignored_seq_groups)},"
+                    f"{_num_ignored_seqs},"
+                    f"{scheduler_outputs.running_queue_size},"
+                    f"{scheduler_outputs.preempted}\n",
+                    end="")
+
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -1269,6 +1293,8 @@ class LLMEngine:
                 blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
                 blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
                 blocks_to_copy=scheduler_outputs.blocks_to_copy,
+                blocks_to_migrate=scheduler_outputs.blocks_to_migrate,
+                slots_to_migrate=scheduler_outputs.slots_to_migrate,
                 num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
                 running_queue_size=scheduler_outputs.running_queue_size,
                 finished_requests_ids=finished_requests_ids,
@@ -1820,9 +1846,12 @@ class LLMEngine:
 
                 if seq_id in scheduled_seqs:
                     scheduled_seqs[seq_id].increment_num_evicted_tokens(
-                        sparsifier_output.num_removed_blocks *
-                        self.cache_config.block_size)
+                        sparsifier_output.num_evicted_tokens)
+                    scheduled_seqs[seq_id].set_num_migrate_dst_blocks(
+                        sparsifier_output.num_migrate_dst_blocks)
+                    scheduled_seqs[seq_id].set_slots_to_migrate(
+                        sparsifier_output.slots_to_migrate)
 
-        if (envs.VLLM_CS243_PRINT_FRAGMENTATION and stat_num_total_slots > 0):
-            print(f"#CS243#,{stat_num_active_slots},{stat_num_total_slots}\n",
+        if (envs.VLLM_CS243_PRINT_BENCHMARK and stat_num_total_slots > 0):
+            print(f"#CS243F#,{stat_num_active_slots},{stat_num_total_slots}\n",
                   end="")

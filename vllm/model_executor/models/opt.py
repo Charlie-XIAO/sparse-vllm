@@ -341,9 +341,6 @@ class OPTForCausalLM(nn.Module):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         record_attn_scores: bool = False,
     ) -> torch.Tensor:
-        print(input_ids)
-        print(positions)
-        print("---")
         if record_attn_scores:
             # Number of slots, which is the second dimension of the block masks,
             # equal to block size times the maximum number of blocks among the
