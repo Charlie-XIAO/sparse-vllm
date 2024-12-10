@@ -23,8 +23,11 @@ def main(args):
     if args.dataset == "sharegpt":
         args_list.extend([args.sharegpt_path])
     elif args.dataset == "random":
-        args_list.extend([args.random_input_len, args.random_output_len, args.random_range_ratio, args.random_prefix_len])
-    args_list.extend([args.sparse_kv_cache_method, args.sparse_kv_cache_budget, args.sparse_kv_cache_num_per_evict, args.sparse_kv_cache_internal])
+        args_list.extend([args.random_input_len, args.random_output_len,
+                          args.random_range_ratio, args.random_prefix_len])
+    args_list.extend([args.sparse_kv_cache_method, args.sparse_kv_cache_budget,
+                      args.sparse_kv_cache_num_per_evict,
+                      args.sparse_kv_cache_internal])
     args_repr = "bench--" + "-".join(str(arg) for arg in args_list)
 
     # Make sure that the target dataset exists
@@ -40,7 +43,8 @@ def main(args):
     stdout_path = LOGS_DIR / f"{args_repr}.stdout.log"
     stderr_path = LOGS_DIR / f"{args_repr}.stderr.log"
     metrics_path = LOGS_DIR / f"{args_repr}.metrics.json"
-    if stderr_path.exists() and stderr_path.exists() and metrics_path.exists():
+    if (not args.force and stderr_path.exists() and stderr_path.exists()
+        and metrics_path.exists()):
         print("\033[33;1mSKIPPED:\033[0m Benchmark outputs already found at:\n"
               f"- {stdout_path}\n"
               f"- {stderr_path}\n"
@@ -148,19 +152,19 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true")
 
     # Experiment setup arguments
     parser.add_argument("--model", type=str, default="facebook/opt-125m")
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--dataset", type=str, choices=["sharegpt", "random"], default="sharegpt")
+    parser.add_argument("--dataset", type=str, choices=["sharegpt", "random"],
+                        default="sharegpt")
 
     # ShareGPT dataset options
     sharegpt_group = parser.add_argument_group("sharegpt dataset options")
-    sharegpt_group.add_argument(
-        "--sharegpt-path",
-        type=str,
-        default="ShareGPT_V3_unfiltered_cleaned_split.json",
-        help="The dataset path relative to the benchmarks directory.")
+    sharegpt_group.add_argument("--sharegpt-path", type=str,
+                                default="sharegpt.json",
+                                help="Dataset path relative to /benchmarks.")
 
     # Random dataset options
     random_group = parser.add_argument_group("random dataset options")

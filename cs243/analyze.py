@@ -14,25 +14,70 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 
 def analyze(f, name):
+    # System information
+    num_scheduled_seqs_arr = []
+    num_batched_tokens_arr = []
+    num_blocks_to_swap_in_arr = []
+    num_blocks_to_swap_out_arr = []
+    num_blocks_to_copy_arr = []
+    num_blocks_to_migrate_arr = []
+    num_slots_to_migrate_arr = []
+    running_queue_size_arr = []
+    num_preempted_arr = []
+
+    # Fragmentation information
     num_active_arr = []
     num_total_arr = []
+
+    # Sparse copying information
     copy_overhead_num = 0
     copy_overhead_total = 0
 
     for line in f:
-        if line.startswith("#CS243F#,"):
+        # System information
+        if line.startswith("#CS243S#,"):
+            (_, num_scheduled_seqs, _, num_batched_tokens,
+             num_blocks_to_swap_in, num_blocks_to_swap_out, num_blocks_to_copy,
+             num_blocks_to_migrate, num_slots_to_migrate, _, _, _,
+             running_queue_size, num_preempted) = line[9:].split(",")
+            num_scheduled_seqs_arr.append(int(num_scheduled_seqs))
+            num_batched_tokens_arr.append(int(num_batched_tokens))
+            num_blocks_to_swap_in_arr.append(int(num_blocks_to_swap_in))
+            num_blocks_to_swap_out_arr.append(int(num_blocks_to_swap_out))
+            num_blocks_to_copy_arr.append(int(num_blocks_to_copy))
+            num_blocks_to_migrate_arr.append(int(num_blocks_to_migrate))
+            num_slots_to_migrate_arr.append(int(num_slots_to_migrate))
+            running_queue_size_arr.append(int(running_queue_size))
+            num_preempted_arr.append(int(num_preempted))
+
+        # Fragmentation information
+        elif line.startswith("#CS243F#,"):
             num_active, num_total = line[9:].split(",")
             num_active_arr.append(int(num_active))
             num_total_arr.append(int(num_total))
+
+        # Sparse copying information
         elif line.startswith("#CS243O#,"):
             copy_overhead_num += 1
             copy_overhead_total += int(line[9:])
 
+    # System information
+    with (RESULTS_DIR / f"{name}-sys.npy").open("wb") as fsys:
+        np.save(fsys, num_scheduled_seqs_arr)
+        np.save(fsys, num_batched_tokens_arr)
+        np.save(fsys, num_blocks_to_swap_in_arr)
+        np.save(fsys, num_blocks_to_swap_out_arr)
+        np.save(fsys, num_blocks_to_copy_arr)
+        np.save(fsys, num_blocks_to_migrate_arr)
+        np.save(fsys, num_slots_to_migrate_arr)
+        np.save(fsys, running_queue_size_arr)
+        np.save(fsys, num_preempted_arr)
+
+    # Fragmentation information
     # Strip off warmup and profiling stages
     num_active_arr = np.asarray(num_active_arr[200:])
     num_total_arr = np.asarray(num_total_arr[200:])
     frag_prop_arr = 1 - num_active_arr / num_total_arr
-
     with (RESULTS_DIR / f"{name}-frag.npy").open("wb") as ffrag:
         np.save(ffrag, num_active_arr)
         np.save(ffrag, num_total_arr)
@@ -77,6 +122,7 @@ def main():
     all_results = {}
 
     for path in LOGS_DIR.glob("bench--*.stdout.log"):
+        print(f"Analyzing {path.name}...")
         name = path.name[7:-11]
         metrics_path = LOGS_DIR / f"bench--{name}.metrics.json"
         if not metrics_path.exists():

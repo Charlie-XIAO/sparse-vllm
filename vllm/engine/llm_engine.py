@@ -1235,6 +1235,24 @@ class LLMEngine:
              allow_async_output_proc
              ) = self.scheduler[virtual_engine].schedule()
 
+            if envs.VLLM_CS243_PRINT_BENCHMARK:
+                print("#CS243S#,"
+                      f"{len(scheduler_outputs.scheduled_seq_groups)},"
+                      f"{sum(len(group.seq_group.seqs) for group in scheduler_outputs.scheduled_seq_groups)},"
+                      f"{scheduler_outputs.num_prefill_groups},"
+                      f"{scheduler_outputs.num_batched_tokens},"
+                      f"{len(scheduler_outputs.blocks_to_swap_in)},"
+                      f"{len(scheduler_outputs.blocks_to_swap_out)},"
+                      f"{len(scheduler_outputs.blocks_to_copy)},"
+                      f"{len(scheduler_outputs.blocks_to_migrate)},"
+                      f"{len(scheduler_outputs.slots_to_migrate)},"
+                      f"{len(scheduler_outputs.ignored_seq_groups)},"
+                      f"{sum(len(group.seqs) for group in scheduler_outputs.ignored_seq_groups)},"
+                      f"{scheduler_outputs.num_lookahead_slots},"
+                      f"{scheduler_outputs.running_queue_size},"
+                      f"{scheduler_outputs.preempted}\n",
+                      end="")
+
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
 
@@ -1829,6 +1847,5 @@ class LLMEngine:
                         sparsifier_output.slots_to_migrate)
 
         if (envs.VLLM_CS243_PRINT_BENCHMARK and stat_num_total_slots > 0):
-            print(f"#CS243D#,{len(scheduled_seqs)}\n", end="")
             print(f"#CS243F#,{stat_num_active_slots},{stat_num_total_slots}\n",
                   end="")
