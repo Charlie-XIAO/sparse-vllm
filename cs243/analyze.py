@@ -83,6 +83,10 @@ def analyze(f, name):
         np.save(ffrag, num_total_arr)
 
     return dict(
+        num_batched_tokens_mean=np.mean(num_batched_tokens_arr),
+        num_batched_tokens_median=np.median(num_batched_tokens_arr),
+        num_batched_tokens_p99=np.percentile(num_batched_tokens_arr, 99),
+        num_preempted_total=sum(num_preempted_arr),
         frag_prop_max=frag_prop_arr.max(),
         frag_prop_mean=frag_prop_arr.mean(),
         frag_prop_median=np.median(frag_prop_arr),

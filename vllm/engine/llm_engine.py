@@ -1236,22 +1236,28 @@ class LLMEngine:
              ) = self.scheduler[virtual_engine].schedule()
 
             if envs.VLLM_CS243_PRINT_BENCHMARK:
-                print("#CS243S#,"
-                      f"{len(scheduler_outputs.scheduled_seq_groups)},"
-                      f"{sum(len(group.seq_group.seqs) for group in scheduler_outputs.scheduled_seq_groups)},"
-                      f"{scheduler_outputs.num_prefill_groups},"
-                      f"{scheduler_outputs.num_batched_tokens},"
-                      f"{len(scheduler_outputs.blocks_to_swap_in)},"
-                      f"{len(scheduler_outputs.blocks_to_swap_out)},"
-                      f"{len(scheduler_outputs.blocks_to_copy)},"
-                      f"{len(scheduler_outputs.blocks_to_migrate)},"
-                      f"{len(scheduler_outputs.slots_to_migrate)},"
-                      f"{len(scheduler_outputs.ignored_seq_groups)},"
-                      f"{sum(len(group.seqs) for group in scheduler_outputs.ignored_seq_groups)},"
-                      f"{scheduler_outputs.num_lookahead_slots},"
-                      f"{scheduler_outputs.running_queue_size},"
-                      f"{scheduler_outputs.preempted}\n",
-                      end="")
+                _num_scheduled_seqs = sum(
+                    len(group.seq_group.seqs)
+                    for group in scheduler_outputs.scheduled_seq_groups)
+                _num_ignored_seqs = sum(
+                    len(group.seqs)
+                    for group in scheduler_outputs.ignored_seq_groups)
+                print(
+                    "#CS243S#,"
+                    f"{len(scheduler_outputs.scheduled_seq_groups)},"
+                    f"{_num_scheduled_seqs},"
+                    f"{scheduler_outputs.num_prefill_groups},"
+                    f"{scheduler_outputs.num_batched_tokens},"
+                    f"{len(scheduler_outputs.blocks_to_swap_in)},"
+                    f"{len(scheduler_outputs.blocks_to_swap_out)},"
+                    f"{len(scheduler_outputs.blocks_to_copy)},"
+                    f"{len(scheduler_outputs.blocks_to_migrate)},"
+                    f"{len(scheduler_outputs.slots_to_migrate)},"
+                    f"{len(scheduler_outputs.ignored_seq_groups)},"
+                    f"{_num_ignored_seqs},"
+                    f"{scheduler_outputs.running_queue_size},"
+                    f"{scheduler_outputs.preempted}\n",
+                    end="")
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
