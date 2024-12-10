@@ -202,3 +202,4 @@ benchmarks/*.json
 cs243/*.json
 cs243/results/
 cs243/logs/
+cs243/plots/
