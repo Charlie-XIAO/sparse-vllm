@@ -1255,6 +1255,7 @@ class LLMEngine:
                     f"{len(scheduler_outputs.slots_to_migrate)},"
                     f"{len(scheduler_outputs.ignored_seq_groups)},"
                     f"{_num_ignored_seqs},"
+                    f"{scheduler_outputs.num_lookahead_slots},"
                     f"{scheduler_outputs.running_queue_size},"
                     f"{scheduler_outputs.preempted}\n",
                     end="")

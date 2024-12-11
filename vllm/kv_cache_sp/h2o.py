@@ -110,7 +110,15 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
                                             slots_to_evict).tolist()
 
         elif self.internal == "spvllm":
-            raise NotImplementedError  # TODO(Charlie-XIAO)
+            block_manager.deactivate_slots(seq_id, slots_to_evict)
+            removed_blocks = block_manager.free_fully_deactivated_blocks(
+                seq_id)
+            for i in removed_blocks:
+                self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
+                    self.seq_ids_to_cum_attn_scores[seq_id],
+                    np.s_[i * block_size:(i + 1) * block_size])
+            block_masks = block_manager.block_tables[seq_id].masks()
+            num_evicted_tokens = len(slots_to_evict)
 
         else:
             raise ValueError(

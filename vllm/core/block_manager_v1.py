@@ -239,10 +239,12 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         watermark: float = 0.01,
         sliding_window: Optional[int] = None,
         enable_caching: bool = False,
+        sparse_kv_cache_internal: str = "spvllm",
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
         self.num_total_cpu_blocks = num_cpu_blocks
+        self.sparse_kv_cache_internal = sparse_kv_cache_internal
 
         if enable_caching and sliding_window is not None:
             raise NotImplementedError(
@@ -382,6 +384,8 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         num_free_gpu_blocks = self.gpu_allocator.get_num_free_blocks()
         num_needed_gpu_blocks = 0
         for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+            if self.sparse_kv_cache_internal == "spvllm" and self.block_tables[seq.seq_id].first_deactivated_slot() is None:
+                continue  # SpvLLM can reuse deactivated slots
             num_needed_gpu_blocks += 1 + seq.num_migrate_dst_blocks
         return num_needed_gpu_blocks <= num_free_gpu_blocks
 
@@ -458,6 +462,7 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         """Allocate a physical slot for a new token."""
         n_blocks = seq.n_blocks
         block_table = self.block_tables[seq.seq_id]
+
         # If we need to allocate a new physical block
         if len(block_table) < n_blocks:
             # Currently this code only supports adding one physical block
@@ -473,6 +478,13 @@ class BlockSpaceManagerV1(BlockSpaceManager):
                 # Allocate a new physical block.
                 new_block = self._allocate_last_physical_block(seq)
                 block_table.append(new_block)
+                return []
+
+        if self.sparse_kv_cache_internal == "spvllm":
+            first_deactivated_slot = block_table.first_deactivated_slot()
+            if first_deactivated_slot is not None:
+                # Reuse the first deactivated slot
+                block_table.activate_slot(first_deactivated_slot)
                 return []
 
         # We want to append the token to the last physical block.
@@ -774,8 +786,8 @@ class BlockSpaceManagerV1(BlockSpaceManager):
     def deactivate_slots(self, seq_id: int, slots: List[int]) -> None:
         self.block_tables[seq_id].deactivate_slots(slots)
 
-    def activate_slots(self, seq_id: int, slots: List[int]) -> None:
-        self.block_tables[seq_id].activate_slots(slots)
+    def activate_slot(self, seq_id: int, slot: Tuple[int, int]) -> None:
+        self.block_tables[seq_id].activate_slot(slot)
 
     def free_fully_deactivated_blocks(self, seq_id: int) -> Set[int]:
         """

@@ -67,10 +67,12 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         watermark: float = 0.01,
         sliding_window: Optional[int] = None,
         enable_caching: bool = False,
+        sparse_kv_cache_internal: str = "spvllm",
     ) -> None:
         self.block_size = block_size
         self.num_total_gpu_blocks = num_gpu_blocks
         self.num_total_cpu_blocks = num_cpu_blocks
+        self.sparse_kv_cache_internal = sparse_kv_cache_internal
 
         self.sliding_window = sliding_window
         # max_block_sliding_window is the max number of blocks that need to be

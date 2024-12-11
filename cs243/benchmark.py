@@ -18,6 +18,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 
 def main(args):
+    print("\033[34;1m**********\033[0m")
     print(args)
     args_list = [args.batch_size, args.dataset]
     if args.dataset == "sharegpt":
@@ -46,9 +47,9 @@ def main(args):
     if (not args.force and stderr_path.exists() and stderr_path.exists()
         and metrics_path.exists()):
         print("\033[33;1mSKIPPED:\033[0m Benchmark outputs already found at:\n"
-              f"- {stdout_path}\n"
-              f"- {stderr_path}\n"
-              f"- {metrics_path}")
+              f"Stdout:  \033[90m{stdout_path}\033[0m\n"
+              f"Stderr:  \033[90m{stderr_path}\033[0m\n"
+              f"Metrics: \033[90m{metrics_path}\033[0m")
         return
     fout = stdout_path.open("w", encoding="utf-8")
     ferr = stderr_path.open("w", encoding="utf-8")
@@ -71,7 +72,6 @@ def main(args):
     ]
 
     # Start the server in the backend and redirect stdout and stderr to files
-    print()
     print("\033[90mStarting up server...\033[0m")
     server_proc = subprocess.Popen(
         ["vllm", "serve", args.model, *server_options],
@@ -91,7 +91,7 @@ def main(args):
         try:
             response = requests.get("http://localhost:8000/health")
             if response.status_code == 200:
-                print(f"\033[32;1m[Att#{i + 1}] Server up\033[0m")
+                print(f"\033[1m[Att#{i + 1}] Server up\033[0m")
                 break
             else:
                 print(f"\033[90m[Att#{i + 1}] Server not ready "
@@ -130,13 +130,11 @@ def main(args):
     ]
 
     # Run the client
-    print()
     result = subprocess.run(
         ["python", "benchmarks/benchmark_serving.py", *client_options],
         cwd=ROOT_DIR,
         env=os.environ,
     )
-    print()
     assert result.returncode == 0
 
     # Shut down the server and close the file descriptors
@@ -146,8 +144,9 @@ def main(args):
     fout.close()
     ferr.close()
 
-    print(f"Stdout: \033[90m{stdout_path}\033[0m")
-    print(f"Stderr: \033[90m{stderr_path}\033[0m")
+    print(f"Stdout:  \033[90m{stdout_path}\033[0m")
+    print(f"Stderr:  \033[90m{stderr_path}\033[0m")
+    print(f"Metrics: \033[90m{metrics_path}\033[0m")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """Token blocks."""
-from typing import TYPE_CHECKING, Iterator, List, Optional, Set
+from typing import TYPE_CHECKING, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -114,14 +114,18 @@ class BlockTable:
             if i not in indices
         ]
 
-    def _set_slots_status(self, slots: List[int], status: bool):
+    def deactivate_slots(self, slots: List[int]):
         block_size = self._blocks[0].block_size
         for slot in slots:
             i, j = divmod(slot, block_size)
-            self._block_masks[i][j] = status
+            self._block_masks[i][j] = False
 
-    def deactivate_slots(self, slots: List[int]):
-        self._set_slots_status(slots, False)
-
-    def activate_slots(self, slots: List[int]):
-        self._set_slots_status(slots, True)
+    def activate_slot(self, slot: Tuple[int, int]):
+        i, j = slot
+        self._block_masks[i][j] = True
+    
+    def first_deactivated_slot(self) -> Optional[Tuple[int, int]]:
+        for i, mask in enumerate(self._block_masks):
+            if not np.all(mask):
+                return (i, np.argmin(mask))
+        return None
