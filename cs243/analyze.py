@@ -143,30 +143,31 @@ def append_metrics(f, results):
         results[f"__{key}__"] = metrics[key]
 
     for key in (
-        "request_throughput",
-        "output_throughput",
-        "total_token_throughput",
+            "request_throughput",
+            "output_throughput",
+            "total_token_throughput",
     ):
         results[f"eff__{key}__"] = metrics[key] / factor
 
     for key in (
-        "mean_ttft_ms",
-        "median_ttft_ms",
-        "std_ttft_ms",
-        "p99_ttft_ms",
-        "mean_tpot_ms",
-        "median_tpot_ms",
-        "std_tpot_ms",
-        "p99_tpot_ms",
-        "mean_itl_ms",
-        "median_itl_ms",
-        "std_itl_ms",
-        "p99_itl_ms",
+            "mean_ttft_ms",
+            "median_ttft_ms",
+            "std_ttft_ms",
+            "p99_ttft_ms",
+            "mean_tpot_ms",
+            "median_tpot_ms",
+            "std_tpot_ms",
+            "p99_tpot_ms",
+            "mean_itl_ms",
+            "median_itl_ms",
+            "std_itl_ms",
+            "p99_itl_ms",
     ):
         results[f"eff__{key}__"] = metrics[key] * factor
 
 
 def main():
+    print("\033[34;1m**********\033[0m")
     all_results = {}
 
     for path in LOGS_DIR.glob("bench--*.stdout.log"):

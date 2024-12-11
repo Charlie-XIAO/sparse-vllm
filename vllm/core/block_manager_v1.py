@@ -384,7 +384,8 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         num_free_gpu_blocks = self.gpu_allocator.get_num_free_blocks()
         num_needed_gpu_blocks = 0
         for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
-            if self.sparse_kv_cache_internal == "spvllm" and self.block_tables[seq.seq_id].first_deactivated_slot() is None:
+            if self.sparse_kv_cache_internal == "spvllm" and self.block_tables[
+                    seq.seq_id].first_deactivated_slot() is None:
                 continue  # SpvLLM can reuse deactivated slots
             num_needed_gpu_blocks += 1 + seq.num_migrate_dst_blocks
         return num_needed_gpu_blocks <= num_free_gpu_blocks

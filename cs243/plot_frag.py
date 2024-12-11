@@ -21,6 +21,7 @@ internals = ["no-op", "free-block", "sparse-copy", "spvllm"]
 
 
 def main():
+    print("\033[34;1m**********\033[0m")
     for batch_size in batch_sizes:
         filename = (f"{batch_size}-sharegpt-sharegpt.json-h2o-max-1-no-op-"
                     "frag.npy")

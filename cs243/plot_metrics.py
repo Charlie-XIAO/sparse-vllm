@@ -37,7 +37,11 @@ def get_params(key):
     raise NotImplementedError
 
 
-def plot_metric(data, metric, metric_repr, batch_size, formatter="{:.1f}",
+def plot_metric(data,
+                metric,
+                metric_repr,
+                batch_size,
+                formatter="{:.1f}",
                 percentage=False):
     mapping = {
         budget: [
@@ -63,8 +67,12 @@ def plot_metric(data, metric, metric_repr, batch_size, formatter="{:.1f}",
                 edgecolor="black",
                 label=internal)
         for j, value in enumerate(values[:, i]):
-            plt.text(bar_positions[j], value * 1.005, formatter.format(value),
-                     ha="center", va="bottom", fontsize=6)
+            plt.text(bar_positions[j],
+                     value * 1.005,
+                     formatter.format(value),
+                     ha="center",
+                     va="bottom",
+                     fontsize=6)
     plt.axhline(data[f"{batch_size}-{common_key}-max-1-no-op"][metric],
                 color="black",
                 linestyle="--",
@@ -74,8 +82,11 @@ def plot_metric(data, metric, metric_repr, batch_size, formatter="{:.1f}",
     if percentage:
         plt.gca().yaxis.set_major_formatter(PercentFormatter(xmax=1))
     plt.xticks(x, keys)
-    plt.legend(loc="upper center", bbox_to_anchor=(0.5, 1.1),
-               ncols=len(internals) + 1, fontsize="small", columnspacing=0.8)
+    plt.legend(loc="upper center",
+               bbox_to_anchor=(0.5, 1.1),
+               ncols=len(internals) + 1,
+               fontsize="small",
+               columnspacing=0.8)
     plt.tight_layout()
     figname = f"x-metric-{batch_size}-{metric}.png"
     plt.savefig(PLOTS_DIR / figname)
@@ -84,15 +95,22 @@ def plot_metric(data, metric, metric_repr, batch_size, formatter="{:.1f}",
 
 
 def main():
+    print("\033[34;1m**********\033[0m")
     with (RESULTS_DIR / "analyze.json").open("r", encoding="utf-8") as f:
         data = json.load(f)
 
     for batch_size in batch_sizes:
         plot_metric(data, "__duration__", "Time taken (s)", batch_size)
-        plot_metric(data, "__total_input_tokens__", "Total input tokens",
-                    batch_size, formatter="{:.1e}")
-        plot_metric(data, "__total_output_tokens__", "Total output tokens",
-                    batch_size, formatter="{:.1e}")
+        plot_metric(data,
+                    "__total_input_tokens__",
+                    "Total input tokens",
+                    batch_size,
+                    formatter="{:.1e}")
+        plot_metric(data,
+                    "__total_output_tokens__",
+                    "Total output tokens",
+                    batch_size,
+                    formatter="{:.1e}")
         plot_metric(data, "__p99_ttft_ms__", "P99 TTFT (ms)", batch_size)
 
         for prefix in ["", "eff"]:
@@ -107,18 +125,39 @@ def main():
 
         plot_metric(data, "num_batched_tokens_mean", "Mean batch size",
                     batch_size)
-        plot_metric(data, "num_preempted_total", "Total preempted tokens",
-                    batch_size, formatter="{:d}")
-        plot_metric(data, "attn_op_total", "Attention forward time (ms)",
-                    batch_size, formatter="{:.1e}")
-        plot_metric(data, "gpu_utilization_p90", "P90 GPU utilization (%)",
-                    batch_size, formatter="{:.1%}", percentage=True)
-        plot_metric(data, "gpu_utilization_mean", "Mean GPU utilization (%)",
-                    batch_size, formatter="{:.1%}", percentage=True)
-        plot_metric(data, "frag_prop_p99", "P99 Internal fragmentation (%)",
-                    batch_size, formatter="{:.1%}", percentage=True)
-        plot_metric(data, "copy_overhead_total", "Copy overhead (ms)",
-                    batch_size, formatter="{:.1e}")
+        plot_metric(data,
+                    "num_preempted_total",
+                    "Total preempted tokens",
+                    batch_size,
+                    formatter="{:d}")
+        plot_metric(data,
+                    "attn_op_total",
+                    "Attention forward time (ms)",
+                    batch_size,
+                    formatter="{:.1e}")
+        plot_metric(data,
+                    "gpu_utilization_p90",
+                    "P90 GPU utilization (%)",
+                    batch_size,
+                    formatter="{:.1%}",
+                    percentage=True)
+        plot_metric(data,
+                    "gpu_utilization_mean",
+                    "Mean GPU utilization (%)",
+                    batch_size,
+                    formatter="{:.1%}",
+                    percentage=True)
+        plot_metric(data,
+                    "frag_prop_p99",
+                    "P99 Internal fragmentation (%)",
+                    batch_size,
+                    formatter="{:.1%}",
+                    percentage=True)
+        plot_metric(data,
+                    "copy_overhead_total",
+                    "Copy overhead (ms)",
+                    batch_size,
+                    formatter="{:.1e}")
 
 
 if __name__ == "__main__":

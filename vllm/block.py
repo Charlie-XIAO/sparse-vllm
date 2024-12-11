@@ -123,9 +123,9 @@ class BlockTable:
     def activate_slot(self, slot: Tuple[int, int]):
         i, j = slot
         self._block_masks[i][j] = True
-    
+
     def first_deactivated_slot(self) -> Optional[Tuple[int, int]]:
         for i, mask in enumerate(self._block_masks):
             if not np.all(mask):
-                return (i, np.argmin(mask))
+                return (i, np.argmin(mask))  # type: ignore
         return None

@@ -1242,8 +1242,9 @@ class LLMEngine:
                 _num_ignored_seqs = sum(
                     len(group.seqs)
                     for group in scheduler_outputs.ignored_seq_groups)
-                _num_free_blocks = (self.scheduler[virtual_engine].block_manager
-                                    .gpu_allocator.get_num_free_blocks())
+                _num_free_blocks = (
+                    self.scheduler[virtual_engine].block_manager.gpu_allocator.
+                    get_num_free_blocks())
                 _gpu_utilization = (
                     1.0 - _num_free_blocks / self.cache_config.num_gpu_blocks)
                 print(
