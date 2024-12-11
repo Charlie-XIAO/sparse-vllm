@@ -16,11 +16,12 @@ PLOTS_DIR = CURRENT_DIR / "plots"
 
 PLOTS_DIR.mkdir(exist_ok=True)
 
-internals = ["no-op", "free-block", "copy", "spvllm"]
+batch_sizes = [2048]
+internals = ["no-op", "free-block", "sparse-copy", "spvllm"]
 
 
 def main():
-    for batch_size in [256, 2048]:
+    for batch_size in batch_sizes:
         filename = (f"{batch_size}-sharegpt-sharegpt.json-h2o-max-1-no-op-"
                     "frag.npy")
         with (RESULTS_DIR / filename).open("rb") as f:

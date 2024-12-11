@@ -186,7 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--sparse-kv-cache-num-per-evict", type=int, default=1)
     parser.add_argument("--sparse-kv-cache-internal",
                         type=str,
-                        choices=["no-op", "free-block", "copy", "spvllm"],
+                        choices=["no-op", "free-block", "sparse-copy", "spvllm"],
                         default="spvllm")
 
     args = parser.parse_args()

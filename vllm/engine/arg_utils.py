@@ -834,7 +834,7 @@ class EngineArgs:
         parser.add_argument(
             "--sparse-kv-cache-internal",
             type=str,
-            choices=["no-op", "free-block", "copy", "spvllm"],
+            choices=["no-op", "free-block", "sparse-copy", "spvllm"],
             default="spvllm",
             help="The internal block management mechanism used for KV cache "
             "sparsification.")

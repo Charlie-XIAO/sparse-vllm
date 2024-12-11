@@ -1602,6 +1602,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_forward_end = torch.cuda.Event(enable_timing=True)
             model_forward_start.record()
 
+        start = time.perf_counter_ns()
         hidden_or_intermediate_states = model_executable(
             input_ids=model_input.input_tokens,
             positions=model_input.input_positions,
@@ -1612,6 +1613,9 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             **MultiModalInputs.as_kwargs(multi_modal_kwargs,
                                          device=self.device),
             **seqlen_agnostic_kwargs)
+        duration = time.perf_counter_ns() - start
+        if envs.VLLM_CS243_PRINT_BENCHMARK:
+            print(f"#CS243A#,{duration}\n", end="")
 
         if (self.observability_config is not None
                 and self.observability_config.collect_model_forward_time):

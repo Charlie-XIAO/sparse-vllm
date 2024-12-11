@@ -683,7 +683,7 @@ class CacheConfig:
                 "less than the KV cache budget "
                 f"(={self.sparse_kv_cache_budget})")
 
-        if self.sparse_kv_cache_internal not in ("no-op", "free-block", "copy",
+        if self.sparse_kv_cache_internal not in ("no-op", "free-block", "sparse-copy",
                                                  "spvllm"):
             raise ValueError("Unknown KV cache internal memory management "
                              f"strategy: {self.sparse_kv_cache_internal}")

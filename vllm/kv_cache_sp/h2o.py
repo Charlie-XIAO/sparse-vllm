@@ -100,7 +100,7 @@ class H2OKVCacheSparsifier(KVCacheSparsifierBase):
             block_masks = block_manager.block_tables[seq_id].masks()
             num_evicted_tokens = len(removed_blocks) * block_size
 
-        elif self.internal == "copy":
+        elif self.internal == "sparse-copy":
             self.seq_ids_to_cum_attn_scores[seq_id] = np.delete(
                 self.seq_ids_to_cum_attn_scores[seq_id], slots_to_evict)
             num_evicted_tokens = len(slots_to_evict)
