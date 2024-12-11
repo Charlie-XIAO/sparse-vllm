@@ -16,11 +16,13 @@ PLOTS_DIR = CURRENT_DIR / "plots"
 
 PLOTS_DIR.mkdir(exist_ok=True)
 
-internals = ["no-op", "free-block", "copy"]
+batch_sizes = [2048]
+internals = ["no-op", "free-block", "sparse-copy", "spvllm"]
 
 
 def main():
-    for batch_size in [256, 2048]:
+    print("\033[34;1m**********\033[0m")
+    for batch_size in batch_sizes:
         filename = (f"{batch_size}-sharegpt-sharegpt.json-h2o-max-1-no-op-"
                     "frag.npy")
         with (RESULTS_DIR / filename).open("rb") as f:
@@ -46,7 +48,7 @@ def main():
                      baseline_frag_prop_arr,
                      color="black",
                      linestyle="--",
-                     label="vLLM")
+                     label="vllm")
             for internal, frag_prop_arr in zip(internals, frag_prop_arrs):
                 x = np.arange(len(frag_prop_arr))
                 plt.plot(x, frag_prop_arr, label=internal)

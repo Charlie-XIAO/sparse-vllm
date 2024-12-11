@@ -1242,6 +1242,11 @@ class LLMEngine:
                 _num_ignored_seqs = sum(
                     len(group.seqs)
                     for group in scheduler_outputs.ignored_seq_groups)
+                _num_free_blocks = (
+                    self.scheduler[virtual_engine].block_manager.gpu_allocator.
+                    get_num_free_blocks())
+                _gpu_utilization = (
+                    1.0 - _num_free_blocks / self.cache_config.num_gpu_blocks)
                 print(
                     "#CS243S#,"
                     f"{len(scheduler_outputs.scheduled_seq_groups)},"
@@ -1255,8 +1260,10 @@ class LLMEngine:
                     f"{len(scheduler_outputs.slots_to_migrate)},"
                     f"{len(scheduler_outputs.ignored_seq_groups)},"
                     f"{_num_ignored_seqs},"
+                    f"{scheduler_outputs.num_lookahead_slots},"
                     f"{scheduler_outputs.running_queue_size},"
-                    f"{scheduler_outputs.preempted}\n",
+                    f"{scheduler_outputs.preempted},"
+                    f"{_gpu_utilization}\n",
                     end="")
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
